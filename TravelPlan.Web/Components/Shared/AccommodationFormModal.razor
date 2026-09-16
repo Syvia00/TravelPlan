@@ -1,0 +1,116 @@
+@inject AccommodationsApiClient AccommodationsApi
+
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="Add stay">
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <div class="form-row">
+            <label for="stay-trip">Trip</label>
+            <InputSelect id="stay-trip" @bind-Value="_model.TripId">
+                @foreach (var trip in Trips)
+                {
+                    <option value="@trip.Id">@trip.Title</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="form-row">
+            <label for="stay-name">Name</label>
+            <InputText id="stay-name" @bind-Value="_model.Name" />
+        </div>
+        <div class="form-row">
+            <label for="stay-address">Address</label>
+            <InputText id="stay-address" @bind-Value="_model.Address" />
+        </div>
+        <div class="form-row">
+            <label for="stay-checkin">Check-in</label>
+            <InputDate id="stay-checkin" Type="InputDateType.DateTimeLocal" @bind-Value="_model.CheckIn" />
+        </div>
+        <div class="form-row">
+            <label for="stay-checkout">Check-out</label>
+            <InputDate id="stay-checkout" Type="InputDateType.DateTimeLocal" @bind-Value="_model.CheckOut" />
+        </div>
+        <div class="form-row">
+            <label for="stay-confirmation">Confirmation code</label>
+            <InputText id="stay-confirmation" @bind-Value="_model.ConfirmationCode" />
+        </div>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="form-errors">
+                @foreach (var err in _errors)
+                {
+                    <li>@err</li>
+                }
+            </ul>
+        }
+
+        <button type="submit" class="btn primary" disabled="@_submitting">@(_submitting ? "Saving…" : "Add stay")</button>
+    </EditForm>
+</Modal>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public EventCallback OnCreated { get; set; }
+
+    private bool _isOpen;
+    private bool _submitting;
+    private List<string> _errors = new();
+    private AccommodationFormModel _model = new();
+
+    public void Open()
+    {
+        _model = new AccommodationFormModel { TripId = Trips.FirstOrDefault()?.Id ?? 0 };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    private Task OnIsOpenChanged(bool open)
+    {
+        _isOpen = open;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _errors.Clear();
+        try
+        {
+            var dto = new CreateAccommodationDto(
+                _model.TripId,
+                null,
+                _model.Name,
+                string.IsNullOrWhiteSpace(_model.Address) ? null : _model.Address,
+                _model.CheckIn,
+                _model.CheckOut,
+                string.IsNullOrWhiteSpace(_model.ConfirmationCode) ? null : _model.ConfirmationCode,
+                null);
+
+            await AccommodationsApi.CreateAsync(dto);
+            _isOpen = false;
+            await OnCreated.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            _errors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private class AccommodationFormModel
+    {
+        public int TripId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public DateTime CheckIn { get; set; } = DateTime.Today.AddHours(15);
+        public DateTime CheckOut { get; set; } = DateTime.Today.AddDays(1).AddHours(11);
+        public string ConfirmationCode { get; set; } = string.Empty;
+    }
+}

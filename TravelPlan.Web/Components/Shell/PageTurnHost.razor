@@ -1,0 +1,90 @@
+@* Renders the routed page inside the book. On navigation to a *different* page type, both the
+   outgoing and incoming page stay mounted for the turn animation's duration (see .book.turn-out
+   / .book.turn-in in app.css) instead of Blazor's default instant swap. Real URLs still drive
+   this the whole time — NavigationManager/the Router change the address bar immediately, so a
+   deep link lands directly on the right screen with no transition, and only the visual mount/
+   unmount of the two page instances is staged. *@
+
+<div class="turn-stage">
+    @if (_outgoing is not null)
+    {
+        <div class="book turn-out">
+            <div class="spine"></div>
+            <RouteView RouteData="@_outgoing" />
+        </div>
+    }
+    <div class="book @(_isTurning ? "turn-in" : "")">
+        <div class="spine"></div>
+        <RouteView RouteData="@_current" />
+    </div>
+</div>
+
+@code {
+    private const int TransitionMs = 420;
+
+    [Parameter, EditorRequired]
+    public RouteData RouteData { get; set; } = default!;
+
+    private RouteData? _outgoing;
+    private RouteData _current = default!;
+    private bool _isTurning;
+    private bool _initialized;
+    private CancellationTokenSource? _cts;
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized)
+        {
+            _current = RouteData;
+            _initialized = true;
+            return;
+        }
+
+        if (IsSameRoute(RouteData, _current))
+        {
+            _current = RouteData;
+            return;
+        }
+
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        _outgoing = _current;
+        _current = RouteData;
+        _isTurning = true;
+        _ = FinishTransitionAsync(_cts.Token);
+    }
+
+    private async Task FinishTransitionAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(TransitionMs, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        _outgoing = null;
+        _isTurning = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static bool IsSameRoute(RouteData a, RouteData b)
+    {
+        if (a.PageType != b.PageType || a.RouteValues.Count != b.RouteValues.Count)
+        {
+            return false;
+        }
+
+        foreach (var (key, value) in a.RouteValues)
+        {
+            if (!b.RouteValues.TryGetValue(key, out var otherValue) || !Equals(value, otherValue))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}

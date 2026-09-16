@@ -1,0 +1,270 @@
+@using TravelPlan.Shared.DTOs.TripMemories.Reports
+@using TravelPlan.Shared.Models.Enums
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@Report.Trip.Title — @TypeLabel</title>
+<style>
+  :root{
+    --desk:#F6F4EE; --accent:#2C7DA0; --accent-deep:#1d5a78;
+    --ink:#2F3E46; --ink-soft:#5c6b73; --edge:#E3DEC9;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--desk);font-family:Georgia,'Times New Roman',serif;color:var(--ink);}
+  .page{max-width:760px;margin:0 auto;padding:40px 24px 80px;}
+  .header{background:var(--accent);color:#fff;border-radius:10px;padding:28px 32px;margin-bottom:32px;}
+  .badge{display:inline-block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;background:rgba(255,255,255,.25);padding:3px 10px;border-radius:10px;margin-bottom:10px;}
+  .header h1{margin:0 0 8px;font-size:28px;}
+  .header p{margin:0;font-size:14px;opacity:.92;}
+  .header p.desc{margin-top:8px;font-style:italic;opacity:.85;}
+  h2{color:var(--accent-deep);font-size:17px;border-bottom:1px solid var(--edge);padding-bottom:8px;margin:32px 0 12px;}
+  .row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;font-size:14px;border-bottom:1px solid var(--edge);}
+  .row .title{color:var(--ink);}
+  .row .sub{color:var(--ink-soft);white-space:nowrap;}
+  .row.two-line{flex-direction:column;gap:2px;}
+  .row.two-line .sub{white-space:normal;}
+  .day-label{color:var(--accent-deep);font-weight:bold;font-size:14px;margin:16px 0 4px;}
+  .day-label:first-of-type{margin-top:0;}
+  .plan-item{padding-left:16px;}
+  .empty{color:var(--ink-soft);font-size:14px;font-style:italic;}
+  .budget-total{font-size:18px;font-weight:bold;color:var(--accent-deep);margin-bottom:8px;}
+  .footer{margin-top:40px;color:var(--ink-soft);font-size:12px;text-align:center;}
+  .stats-strip{display:flex;justify-content:space-between;gap:12px;margin:0;padding:8px 0 24px;}
+  .stat{flex:1;text-align:center;}
+  .stat .num{display:block;font-size:26px;font-weight:bold;color:var(--accent-deep);}
+  .stat .label{display:block;font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-top:2px;}
+  .reflection-box{background:#fff;border-radius:10px;padding:20px 24px;margin-top:8px;border-left:4px solid var(--accent);font-style:italic;white-space:pre-wrap;}
+  .reflection-box.empty{color:var(--ink-soft);}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <span class="badge">@TypeLabel</span>
+    <h1>@Report.Trip.Title</h1>
+    <p>@Report.Trip.StartDate.ToString("MMM d, yyyy") – @Report.Trip.EndDate.ToString("MMM d, yyyy") · @Report.Trip.DurationDays days</p>
+    @if (!string.IsNullOrWhiteSpace(Report.Trip.Description))
+    {
+        <p class="desc">@Report.Trip.Description</p>
+    }
+  </div>
+
+  @if (Report.ReportType == TripMemoryReportType.MemorySummary)
+  {
+      <div class="stats-strip">
+          @foreach (var stat in Stats)
+          {
+              <div class="stat">
+                  <span class="num">@stat.Value</span>
+                  <span class="label">@stat.Label</span>
+              </div>
+          }
+      </div>
+
+      @if (Report.Destinations.Count > 0)
+      {
+          <h2>Route</h2>
+          @foreach (var d in Report.Destinations)
+          {
+              <div class="row">
+                  <span class="title">@d.Name (@d.CountryCode)</span>
+                  <span class="sub">
+                      @if (d.ExitDate is { } exit)
+                      {
+                          @($"{d.EntryDate:MMM d} – {exit:MMM d} · {d.Nights} night{(d.Nights == 1 ? "" : "s")}")
+                      }
+                      else
+                      {
+                          @($"From {d.EntryDate:MMM d}")
+                      }
+                  </span>
+              </div>
+          }
+      }
+
+      <h2>Highlights</h2>
+      @if (Report.PlanItems.Count == 0)
+      {
+          <p class="empty">No highlights recorded.</p>
+      }
+      else
+      {
+          @foreach (var item in Report.PlanItems.Take(MaxHighlights))
+          {
+              <div class="row">
+                  <span class="title">@item.Title</span>
+                  <span class="sub">@FormatWhen(item)</span>
+              </div>
+          }
+      }
+
+      <h2>Budget</h2>
+      <p class="budget-total">@FormatMoney(Report.BudgetSummary.GrandTotal, Report.BudgetSummary.Currency) total</p>
+      @if (Report.BudgetSummary.Categories.Count == 0)
+      {
+          <p class="empty">No expenses recorded.</p>
+      }
+      else
+      {
+          @foreach (var cat in Report.BudgetSummary.Categories)
+          {
+              <div class="row">
+                  <span class="title">@cat.Category</span>
+                  <span class="sub">@FormatMoney(cat.Total, Report.BudgetSummary.Currency) (@cat.Percentage.ToString("0.#")%)</span>
+              </div>
+          }
+      }
+
+      <h2>Reflection</h2>
+      @if (string.IsNullOrWhiteSpace(Report.Reflection))
+      {
+          <p class="reflection-box empty">No reflection written yet.</p>
+      }
+      else
+      {
+          <p class="reflection-box">@Report.Reflection</p>
+      }
+  }
+  else
+  {
+      @if (Report.Destinations.Count > 0)
+      {
+          <h2>Destinations</h2>
+          @foreach (var d in Report.Destinations)
+          {
+              <div class="row">
+                  <span class="title">@d.Name (@d.CountryCode)</span>
+                  <span class="sub">
+                      @if (d.ExitDate is { } exit)
+                      {
+                          @($"{d.EntryDate:MMM d} – {exit:MMM d} · {d.Nights} night{(d.Nights == 1 ? "" : "s")}")
+                      }
+                      else
+                      {
+                          @($"From {d.EntryDate:MMM d}")
+                      }
+                  </span>
+              </div>
+          }
+      }
+
+      @if (Report.PlanItems.Count > 0)
+      {
+          <h2>Itinerary</h2>
+          DateOnly? lastDate = null;
+          @foreach (var item in Report.PlanItems)
+          {
+              @if (item.Date != lastDate)
+              {
+                  lastDate = item.Date;
+                  <p class="day-label">@item.Date!.Value.ToString("dddd, MMM d")</p>
+              }
+              <div class="row plan-item">
+                  <span class="title">@item.Title</span>
+                  <span class="sub">@(item.Time?.ToString("h:mm tt") ?? "Unscheduled")</span>
+              </div>
+          }
+      }
+
+      @if (Report.Accommodations.Count > 0)
+      {
+          <h2>Stays</h2>
+          @foreach (var a in Report.Accommodations)
+          {
+              <div class="row two-line">
+                  <span class="title">@a.Name</span>
+                  <span class="sub">
+                      @a.CheckIn.ToString("MMM d, h:mm tt") → @a.CheckOut.ToString("MMM d, h:mm tt")
+                      · @a.Nights night@(a.Nights == 1 ? "" : "s")
+                      @if (!string.IsNullOrWhiteSpace(a.ConfirmationCode))
+                      {
+                          @($" · Conf# {a.ConfirmationCode}")
+                      }
+                  </span>
+              </div>
+          }
+      }
+
+      @if (Report.TravelLegs.Count > 0)
+      {
+          <h2>Transport</h2>
+          @foreach (var l in Report.TravelLegs)
+          {
+              <div class="row two-line">
+                  <span class="title">@l.TransportType: @l.DepartureLocation → @l.ArrivalLocation</span>
+                  <span class="sub">
+                      @l.DepartureTime.ToString("MMM d, h:mm tt") → @l.ArrivalTime.ToString("h:mm tt")
+                      · @l.DurationMinutes min
+                      @if (!string.IsNullOrWhiteSpace(l.ConfirmationCode))
+                      {
+                          @($" · Conf# {l.ConfirmationCode}")
+                      }
+                  </span>
+              </div>
+          }
+      }
+
+      <h2>Budget</h2>
+      <p class="budget-total">@FormatMoney(Report.BudgetSummary.GrandTotal, Report.BudgetSummary.Currency) total</p>
+      @if (Report.BudgetSummary.Categories.Count == 0)
+      {
+          <p class="empty">No expenses recorded.</p>
+      }
+      else
+      {
+          @foreach (var cat in Report.BudgetSummary.Categories)
+          {
+              <div class="row">
+                  <span class="title">@cat.Category</span>
+                  <span class="sub">@FormatMoney(cat.Total, Report.BudgetSummary.Currency) (@cat.Percentage.ToString("0.#")%)</span>
+              </div>
+          }
+      }
+  }
+
+  <p class="footer">Generated @Report.GeneratedAt.ToString("MMM d, yyyy h:mm tt") UTC · TravelPlan</p>
+
+</div>
+</body>
+</html>
+
+@code {
+    private const int MaxHighlights = 8;
+
+    [Parameter, EditorRequired]
+    public TripReportDto Report { get; set; } = default!;
+
+    private string TypeLabel => Report.ReportType == TripMemoryReportType.MemorySummary ? "Memory" : "Itinerary";
+
+    private (string Label, string Value)[] Stats => new[]
+    {
+        ("Days", Report.Trip.DurationDays.ToString()),
+        ("Destinations", Report.Destinations.Count.ToString()),
+        ("Nights stayed", Report.Accommodations.Sum(a => a.Nights).ToString()),
+        ("Activities", Report.PlanItems.Count.ToString()),
+        ("Spent", FormatMoney(Report.BudgetSummary.GrandTotal, Report.BudgetSummary.Currency)),
+    };
+
+    private static string FormatWhen(ReportPlanItemDto item)
+    {
+        if (item.Date is not { } date)
+        {
+            return string.Empty;
+        }
+
+        return item.Time is { } time ? $"{date:MMM d}, {time:h:mm tt}" : $"{date:MMM d}";
+    }
+
+    private static string FormatMoney(decimal amount, string currency) => currency switch
+    {
+        "USD" => $"${amount:N0}",
+        "JPY" => $"¥{amount:N0}",
+        "EUR" => $"€{amount:N0}",
+        "GBP" => $"£{amount:N0}",
+        _ => $"{amount:N0} {currency}",
+    };
+}

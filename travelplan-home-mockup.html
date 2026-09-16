@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TravelPlan — home mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --desk:#F6F4EE;
+    --page-warm:#FFF3B0;
+    --page-cool:#D3ECFF;
+    --accent:#2C7DA0;
+    --accent-deep:#1d5a78;
+    --ink:#2F3E46;
+    --ink-soft:#5c6b73;
+    --edge-1:#EDE9DA;
+    --edge-2:#E3DEC9;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--desk);font-family:'Inter',system-ui,sans-serif;color:var(--ink);min-height:100vh;}
+  .wordmark{text-align:center;font-family:'Fraunces',serif;font-size:14px;color:#948d70;letter-spacing:.03em;padding-top:22px;}
+  .toolbar{display:flex;justify-content:center;gap:8px;padding:10px 0 6px;}
+  .toolbar button{font-family:inherit;font-size:13px;padding:7px 16px;border-radius:20px;border:1px solid #ddd6c4;background:#fff;color:var(--ink-soft);cursor:pointer;}
+  .toolbar button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .stage{display:flex;justify-content:center;align-items:flex-start;padding:44px 24px 90px;}
+  .book-wrap{position:relative;width:920px;max-width:92vw;transition:width .35s ease;}
+  .book-wrap.mobile{width:340px;}
+
+  .stack{position:absolute;inset:0;border-radius:6px;}
+  .stack.s1{background:var(--edge-1);transform:translate(5px,7px);}
+  .stack.s2{background:var(--edge-2);transform:translate(9px,13px);}
+
+  .book{position:relative;display:flex;border-radius:6px;overflow:hidden;
+    box-shadow:0 2px 4px rgba(47,62,70,.12),0 20px 40px rgba(47,62,70,.20),0 44px 70px rgba(47,62,70,.14);}
+
+  .page{position:relative;flex:1;padding:28px 26px 34px;min-height:520px;}
+  .page.warm{background:var(--page-warm);}
+  .page.cool{background:var(--page-cool);}
+  .book-wrap.mobile .page{display:none;}
+  .book-wrap.mobile .page.visible{display:block;}
+
+  .spine{position:absolute;top:0;bottom:0;left:50%;width:26px;margin-left:-13px;
+    background:linear-gradient(to right, transparent 0%, rgba(0,0,0,.14) 50%, transparent 100%);
+    pointer-events:none;z-index:2;}
+  .book-wrap.mobile .spine{display:none;}
+
+  .eyebrow{font-size:11px;color:var(--ink-soft);margin:0 0 4px;}
+  .big-num{font-family:'Fraunces',serif;font-size:26px;font-weight:500;margin:0 0 18px;}
+
+  .card{background:#fff;border-radius:14px;padding:14px 16px;box-shadow:0 1px 2px rgba(47,62,70,.05),0 6px 16px rgba(47,62,70,.08);margin-bottom:10px;}
+  .row{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-soft);padding:5px 0;}
+  .row span:last-child{color:var(--ink);font-weight:500;}
+
+  .btn{width:100%;border:none;border-radius:10px;padding:10px 12px;font-size:13px;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;}
+  .btn.primary{background:var(--accent);color:#fff;}
+  .btn.ghost{background:transparent;border:1px solid #d8c877;color:#5c5230;}
+
+  .settings-icon{position:absolute;top:22px;right:22px;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.65);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--accent-deep);z-index:3;}
+
+  .cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .cal-title{font-family:'Fraunces',serif;font-size:17px;color:var(--accent-deep);margin:0;}
+  .zoom{display:flex;gap:3px;}
+  .zoom span{font-size:10px;padding:4px 9px;border-radius:12px;color:#4d84a1;}
+  .zoom span.on{background:var(--accent);color:#fff;}
+
+  .grid7{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10.5px;text-align:center;}
+  .grid7 .dow{color:#4d84a1;padding-bottom:4px;}
+  .grid7 .day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--accent-deep);}
+  .grid7 .day.trip{background:var(--accent);color:#fff;}
+  .grid7 .day.blank{visibility:hidden;}
+
+  .trip-tag{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--accent-deep);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);}
+
+  .mobile-tabs{display:none;justify-content:center;gap:8px;padding:14px 0 0;}
+  .book-wrap.mobile .mobile-tabs{display:flex;}
+  .mobile-tabs button{font-size:12px;padding:6px 14px;border-radius:14px;border:1px solid #cfe4f0;background:#fff;color:var(--accent-deep);}
+  .mobile-tabs button.on{background:var(--accent-deep);color:#fff;border-color:var(--accent-deep);}
+
+  .page.turning{animation:turn .4s ease;}
+  @keyframes turn{
+    0%{transform:rotateY(0deg);opacity:1;}
+    45%{transform:rotateY(-14deg);opacity:.35;}
+    55%{transform:rotateY(14deg);opacity:.35;}
+    100%{transform:rotateY(0deg);opacity:1;}
+  }
+</style>
+</head>
+<body>
+
+<p class="wordmark">TravelPlan</p>
+<div class="toolbar">
+  <button id="btnDesktop" class="active">Desktop</button>
+  <button id="btnMobile">Mobile</button>
+</div>
+
+<div class="stage">
+  <div class="book-wrap" id="bookWrap">
+    <div class="stack s2"></div>
+    <div class="stack s1"></div>
+    <div class="book">
+      <div class="spine"></div>
+
+      <div class="page warm visible" id="pageBudget">
+        <p class="eyebrow">BUDGET</p>
+        <p class="big-num">$2,140 tracked</p>
+        <div class="card">
+          <div class="row"><span>Stay</span><span>$860</span></div>
+          <div class="row"><span>Transport</span><span>$510</span></div>
+          <div class="row"><span>Food</span><span>$470</span></div>
+          <div class="row"><span>Activities</span><span>$300</span></div>
+        </div>
+        <button class="btn primary">+ New trip</button>
+        <button class="btn ghost">Add stay</button>
+        <button class="btn ghost">Add transport</button>
+      </div>
+
+      <div class="page cool" id="pageCalendar">
+        <div class="settings-icon">&#9881;</div>
+        <div class="cal-head">
+          <p class="cal-title">March 2027</p>
+          <div class="zoom"><span class="on">Month</span><span>Week</span><span>Year</span></div>
+        </div>
+        <div class="grid7">
+          <div class="dow">S</div><div class="dow">M</div><div class="dow">T</div><div class="dow">W</div><div class="dow">T</div><div class="dow">F</div><div class="dow">S</div>
+          <div class="day blank"></div><div class="day blank"></div>
+          <div class="day">1</div><div class="day">2</div><div class="day">3</div><div class="day">4</div><div class="day">5</div>
+          <div class="day">6</div><div class="day trip">7</div><div class="day trip">8</div><div class="day trip">9</div><div class="day trip">10</div><div class="day">11</div><div class="day">12</div>
+          <div class="day">13</div><div class="day">14</div><div class="day">15</div><div class="day">16</div><div class="day">17</div><div class="day">18</div><div class="day">19</div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="trip-tag"><span class="dot"></span>Tokyo + Kyoto — Mar 7–10</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="mobile-tabs">
+      <button class="on" id="tabBudget">Budget</button>
+      <button id="tabCalendar">Calendar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const wrap = document.getElementById('bookWrap');
+  const btnDesktop = document.getElementById('btnDesktop');
+  const btnMobile = document.getElementById('btnMobile');
+  btnDesktop.onclick = () => { wrap.classList.remove('mobile'); btnDesktop.classList.add('active'); btnMobile.classList.remove('active'); };
+  btnMobile.onclick = () => { wrap.classList.add('mobile'); btnMobile.classList.add('active'); btnDesktop.classList.remove('active'); };
+
+  const pageBudget = document.getElementById('pageBudget');
+  const pageCalendar = document.getElementById('pageCalendar');
+  const tabBudget = document.getElementById('tabBudget');
+  const tabCalendar = document.getElementById('tabCalendar');
+
+  function showPage(which) {
+    const target = which === 'budget' ? pageBudget : pageCalendar;
+    const other = which === 'budget' ? pageCalendar : pageBudget;
+    target.classList.add('turning');
+    other.classList.remove('visible');
+    target.classList.add('visible');
+    tabBudget.classList.toggle('on', which === 'budget');
+    tabCalendar.classList.toggle('on', which === 'calendar');
+    setTimeout(() => target.classList.remove('turning'), 400);
+  }
+  tabBudget.onclick = () => showPage('budget');
+  tabCalendar.onclick = () => showPage('calendar');
+</script>
+
+</body>
+</html>

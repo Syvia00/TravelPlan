@@ -1,0 +1,178 @@
+@inject PlanItemsApiClient PlanItemsApi
+
+@if (_loading)
+{
+    <p class="empty-day">Loading…</p>
+}
+else if (_coveringTrip is null)
+{
+    <p class="empty-day">No trip covers this day yet.</p>
+}
+else
+{
+    <div class="day-timeline">
+        <div class="drag-zone @(_backlogDragOver ? "drag-over" : "")"
+             @ondragover="@(() => { })" @ondragover:preventDefault
+             @ondragenter="() => _backlogDragOver = true" @ondragleave="() => _backlogDragOver = false"
+             @ondrop="() => HandleDropAsync(DropTarget.Backlog)">
+            <p class="timeline-label">Trip backlog</p>
+            @if (_backlog.Count == 0)
+            {
+                <p class="empty-day">Nothing in the backlog.</p>
+            }
+            else
+            {
+                @foreach (var item in _backlog)
+                {
+                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id">
+                        <span class="timeline-title">@item.Title</span>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="drag-zone @(_unscheduledDragOver ? "drag-over" : "")"
+             @ondragover="@(() => { })" @ondragover:preventDefault
+             @ondragenter="() => _unscheduledDragOver = true" @ondragleave="() => _unscheduledDragOver = false"
+             @ondrop="() => HandleDropAsync(DropTarget.UnscheduledToday)">
+            <p class="timeline-label">Unscheduled today</p>
+            @if (_unscheduled.Count == 0)
+            {
+                <p class="empty-day">Nothing unscheduled.</p>
+            }
+            else
+            {
+                @foreach (var item in _unscheduled)
+                {
+                    <div class="timeline-item unscheduled draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id">
+                        <span class="timeline-title">@item.Title</span>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="drag-zone @(_timelineDragOver ? "drag-over" : "")"
+             @ondragover="@(() => { })" @ondragover:preventDefault
+             @ondragenter="() => _timelineDragOver = true" @ondragleave="() => _timelineDragOver = false"
+             @ondrop="() => HandleDropAsync(DropTarget.Timeline)">
+            <p class="timeline-label">Timeline</p>
+            @if (_scheduled.Count == 0)
+            {
+                <p class="empty-day">Nothing scheduled.</p>
+            }
+            else
+            {
+                @foreach (var item in _scheduled)
+                {
+                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id">
+                        <span class="timeline-time">@item.Time!.Value.ToString("h:mm tt")</span>
+                        <span class="timeline-title">@item.Title</span>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private enum DropTarget { Backlog, UnscheduledToday, Timeline }
+
+    [Parameter]
+    public DateOnly Date { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    private bool _loading = true;
+    private TripDto? _coveringTrip;
+    private List<PlanItemDto> _backlog = new();
+    private List<PlanItemDto> _scheduled = new();
+    private List<PlanItemDto> _unscheduled = new();
+
+    private int? _draggedItemId;
+    private bool _backlogDragOver;
+    private bool _unscheduledDragOver;
+    private bool _timelineDragOver;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _coveringTrip = Trips.FirstOrDefault(t => t.StartDate <= Date && Date <= t.EndDate);
+        await LoadItemsAsync();
+        _loading = false;
+    }
+
+    private async Task LoadItemsAsync()
+    {
+        if (_coveringTrip is null)
+        {
+            _backlog = new List<PlanItemDto>();
+            _scheduled = new List<PlanItemDto>();
+            _unscheduled = new List<PlanItemDto>();
+            return;
+        }
+
+        var items = await PlanItemsApi.ListByTripAsync(_coveringTrip.Id);
+        _backlog = items.Where(i => i.Date is null).OrderBy(i => i.SortOrder).ToList();
+
+        var forDay = items.Where(i => i.Date == Date).ToList();
+        _scheduled = forDay.Where(i => i.Time is not null).OrderBy(i => i.Time).ToList();
+        _unscheduled = forDay.Where(i => i.Time is null).OrderBy(i => i.SortOrder).ToList();
+    }
+
+    private async Task HandleDropAsync(DropTarget target)
+    {
+        _backlogDragOver = false;
+        _unscheduledDragOver = false;
+        _timelineDragOver = false;
+
+        if (_draggedItemId is not { } itemId)
+        {
+            return;
+        }
+        _draggedItemId = null;
+
+        var item = _backlog.Concat(_unscheduled).Concat(_scheduled).FirstOrDefault(i => i.Id == itemId);
+        if (item is null)
+        {
+            return;
+        }
+
+        // Only these three combinations are ever valid — Time can never be set without Date.
+        DateOnly? newDate = target == DropTarget.Backlog ? null : Date;
+        TimeOnly? newTime = target == DropTarget.Timeline ? item.Time ?? DefaultDropTime() : null;
+
+        if (item.Date == newDate && item.Time == newTime)
+        {
+            return;
+        }
+
+        var dto = new UpdatePlanItemDto(
+            item.DestinationId,
+            newDate,
+            newTime,
+            item.Title,
+            item.Notes,
+            item.SortOrder,
+            item.SourceUrl,
+            item.IsDone);
+
+        try
+        {
+            await PlanItemsApi.UpdateAsync(itemId, dto);
+            await LoadItemsAsync();
+        }
+        catch (ApiException)
+        {
+            // Best-effort — a future pass can surface this as an inline error banner.
+        }
+    }
+
+    /// <summary>Next top-of-hour, used when an item is dropped straight onto the timeline with no time of its own yet.</summary>
+    private static TimeOnly DefaultDropTime()
+    {
+        var now = DateTime.Now;
+        var nextHour = now.Minute == 0 ? now : now.AddHours(1);
+        return new TimeOnly(nextHour.Hour, 0);
+    }
+}

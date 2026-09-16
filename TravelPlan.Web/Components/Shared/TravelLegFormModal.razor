@@ -1,0 +1,126 @@
+@inject TravelLegsApiClient TravelLegsApi
+
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="Add transport">
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <div class="form-row">
+            <label for="leg-trip">Trip</label>
+            <InputSelect id="leg-trip" @bind-Value="_model.TripId">
+                @foreach (var trip in Trips)
+                {
+                    <option value="@trip.Id">@trip.Title</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="form-row">
+            <label for="leg-type">Transport type</label>
+            <InputSelect id="leg-type" @bind-Value="_model.TransportType">
+                @foreach (var type in Enum.GetValues<TransportType>())
+                {
+                    <option value="@type">@type</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="form-row">
+            <label for="leg-from">Departure location</label>
+            <InputText id="leg-from" @bind-Value="_model.DepartureLocation" />
+        </div>
+        <div class="form-row">
+            <label for="leg-to">Arrival location</label>
+            <InputText id="leg-to" @bind-Value="_model.ArrivalLocation" />
+        </div>
+        <div class="form-row">
+            <label for="leg-dep-time">Departure time</label>
+            <InputDate id="leg-dep-time" Type="InputDateType.DateTimeLocal" @bind-Value="_model.DepartureTime" />
+        </div>
+        <div class="form-row">
+            <label for="leg-arr-time">Arrival time</label>
+            <InputDate id="leg-arr-time" Type="InputDateType.DateTimeLocal" @bind-Value="_model.ArrivalTime" />
+        </div>
+        <div class="form-row">
+            <label for="leg-confirmation">Confirmation code</label>
+            <InputText id="leg-confirmation" @bind-Value="_model.ConfirmationCode" />
+        </div>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="form-errors">
+                @foreach (var err in _errors)
+                {
+                    <li>@err</li>
+                }
+            </ul>
+        }
+
+        <button type="submit" class="btn primary" disabled="@_submitting">@(_submitting ? "Saving…" : "Add transport")</button>
+    </EditForm>
+</Modal>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public EventCallback OnCreated { get; set; }
+
+    private bool _isOpen;
+    private bool _submitting;
+    private List<string> _errors = new();
+    private TravelLegFormModel _model = new();
+
+    public void Open()
+    {
+        _model = new TravelLegFormModel { TripId = Trips.FirstOrDefault()?.Id ?? 0 };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    private Task OnIsOpenChanged(bool open)
+    {
+        _isOpen = open;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _errors.Clear();
+        try
+        {
+            var dto = new CreateTravelLegDto(
+                _model.TripId,
+                _model.DepartureLocation,
+                _model.ArrivalLocation,
+                _model.DepartureTime,
+                _model.ArrivalTime,
+                _model.TransportType,
+                string.IsNullOrWhiteSpace(_model.ConfirmationCode) ? null : _model.ConfirmationCode,
+                null);
+
+            await TravelLegsApi.CreateAsync(dto);
+            _isOpen = false;
+            await OnCreated.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            _errors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private class TravelLegFormModel
+    {
+        public int TripId { get; set; }
+        public TransportType TransportType { get; set; } = TransportType.Flight;
+        public string DepartureLocation { get; set; } = string.Empty;
+        public string ArrivalLocation { get; set; } = string.Empty;
+        public DateTime DepartureTime { get; set; } = DateTime.Today.AddHours(9);
+        public DateTime ArrivalTime { get; set; } = DateTime.Today.AddHours(12);
+        public string ConfirmationCode { get; set; } = string.Empty;
+    }
+}

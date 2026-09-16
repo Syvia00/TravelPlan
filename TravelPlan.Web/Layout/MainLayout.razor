@@ -1,0 +1,19 @@
+@* Persistent chrome: wordmark + the desk/book-wrap shadow stack. Never remounted across
+   navigation — only the content inside .turn-viewport (ChildContent) changes, via PageTurnHost. *@
+
+<NavMenu />
+
+<div class="stage">
+    <div class="book-wrap">
+        <div class="stack s2"></div>
+        <div class="stack s1"></div>
+        <div class="turn-viewport">
+            @ChildContent
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

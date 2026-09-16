@@ -1,0 +1,40 @@
+@page "/"
+@inject TripsApiClient TripsApi
+
+<div class="page warm @MobileVisibleClass("budget")">
+    <LiveCountdown Trips="@_trips" TripsLoading="@_loading" />
+    <BudgetPanel Trips="@_trips" TripsLoading="@_loading" OnTripSaved="ReloadTripsAsync" />
+</div>
+<div class="page cool @MobileVisibleClass("calendar")">
+    <CalendarWidget Trips="@_trips" TripsLoading="@_loading" />
+</div>
+<div class="mobile-tabs">
+    <button class="@(_mobileTab == "budget" ? "on" : "")" @onclick='() => SelectMobileTab("budget")'>Budget</button>
+    <button class="@(_mobileTab == "calendar" ? "on" : "")" @onclick='() => SelectMobileTab("calendar")'>Calendar</button>
+</div>
+
+@code {
+    private List<TripDto> _trips = new();
+    private bool _loading = true;
+    private string _mobileTab = "budget";
+
+    protected override async Task OnInitializedAsync() => await ReloadTripsAsync();
+
+    private async Task ReloadTripsAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _trips = await TripsApi.ListAsync();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SelectMobileTab(string tab) => _mobileTab = tab;
+
+    private string MobileVisibleClass(string tab) => _mobileTab == tab ? "mobile-visible" : "";
+}

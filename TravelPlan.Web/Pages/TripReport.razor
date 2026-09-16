@@ -1,0 +1,187 @@
+@page "/trips/{TripId:int}/report"
+@inject TripsApiClient TripsApi
+@inject TripMemoriesApiClient MemoriesApi
+
+<div class="page cool" style="flex:1 1 100%;">
+    <a class="settings-icon" href="/" title="Back to your book" aria-label="Back to your book">&#8592;</a>
+
+    @if (_loading)
+    {
+        <p>Loading…</p>
+    }
+    else if (_trip is null)
+    {
+        <h1 class="cal-title">Trip not found</h1>
+        <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;" href="/">&larr; Back to your book</a>
+    }
+    else
+    {
+        <p class="eyebrow">TRIP REPORT</p>
+        <h1 class="cal-title" style="font-size:22px;margin:0 0 4px;">@_trip.Title</h1>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 20px;">
+            @_trip.StartDate.ToString("MMM d, yyyy") – @_trip.EndDate.ToString("MMM d, yyyy")
+            · <span style="text-transform:capitalize;">@_trip.Status</span>
+        </p>
+
+        <div class="card">
+            <button type="button" class="btn primary" @onclick="GenerateItineraryAsync" disabled="@_generating">
+                @(_generating ? "Generating…" : "+ Generate itinerary report")
+            </button>
+
+            @if (_trip.Status != TripStatus.Completed)
+            {
+                <button type="button" class="btn ghost" @onclick="CompleteTripAsync" disabled="@_completing">
+                    @(_completing ? "Completing…" : "Mark trip Completed")
+                </button>
+            }
+            else
+            {
+                <p style="color:var(--ink-soft);font-size:12px;margin:8px 0 0;">
+                    This trip is completed — its memory summary was generated automatically.
+                </p>
+            }
+
+            @if (_generateError is not null)
+            {
+                <p style="color:#b3261e;font-size:12px;margin:8px 0 0;">@_generateError</p>
+            }
+            @if (_completeError is not null)
+            {
+                <p style="color:#b3261e;font-size:12px;margin:8px 0 0;">@_completeError</p>
+            }
+        </div>
+
+        @if (_memoriesLoading)
+        {
+            <p>Loading reports…</p>
+        }
+        else if (_memories.Count == 0)
+        {
+            <p class="empty-day">No reports generated yet.</p>
+        }
+        else
+        {
+            @foreach (var memory in _memories)
+            {
+                <div class="card">
+                    <div class="row">
+                        <span>@memory.Title</span>
+                        <span>@memory.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:10px;">
+                        <a class="btn ghost" style="width:auto;padding:8px 16px;margin:0;" href="@MemoriesApi.GetPngUrl(memory.Id)">Download PNG</a>
+                        <a class="btn ghost" style="width:auto;padding:8px 16px;margin:0;" href="@MemoriesApi.GetPdfUrl(memory.Id)">Download PDF</a>
+                        <a class="btn ghost" style="width:auto;padding:8px 16px;margin:0;" href="@MemoriesApi.GetHtmlUrl(memory.Id)" target="_blank">Open HTML view</a>
+                    </div>
+
+                    @if (memory.ReportType == TripMemoryReportType.MemorySummary)
+                    {
+                        <div class="form-row" style="margin-top:14px;">
+                            <label for="@($"reflection-{memory.Id}")">Reflection</label>
+                            <textarea id="@($"reflection-{memory.Id}")" rows="3"
+                                      style="width:100%;font-family:inherit;font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid #d8d2bd;background:#fff;color:var(--ink);"
+                                      @bind="_reflectionDrafts[memory.Id]"></textarea>
+                        </div>
+                        <button type="button" class="btn ghost" style="width:auto;padding:8px 16px;margin-top:6px;"
+                                @onclick="() => SaveReflectionAsync(memory.Id)" disabled="@(_savingReflectionId == memory.Id)">
+                            @(_savingReflectionId == memory.Id ? "Saving…" : "Save reflection")
+                        </button>
+                    }
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int TripId { get; set; }
+
+    private TripDto? _trip;
+    private bool _loading = true;
+    private List<TripMemoryDto> _memories = new();
+    private Dictionary<int, string> _reflectionDrafts = new();
+    private bool _memoriesLoading = true;
+    private bool _generating;
+    private string? _generateError;
+    private bool _completing;
+    private string? _completeError;
+    private int? _savingReflectionId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _trip = await TripsApi.GetAsync(TripId);
+        _loading = false;
+
+        if (_trip is not null)
+        {
+            await LoadMemoriesAsync();
+        }
+    }
+
+    private async Task LoadMemoriesAsync()
+    {
+        _memoriesLoading = true;
+        _memories = await MemoriesApi.ListByTripAsync(TripId);
+        _reflectionDrafts = _memories.ToDictionary(m => m.Id, m => m.ReportData.Reflection ?? string.Empty);
+        _memoriesLoading = false;
+    }
+
+    private async Task GenerateItineraryAsync()
+    {
+        _generating = true;
+        _generateError = null;
+        try
+        {
+            await MemoriesApi.CreateAsync(new CreateTripMemoryDto(TripId, TripMemoryReportType.Itinerary, null, null));
+            await LoadMemoriesAsync();
+        }
+        catch (ApiException ex)
+        {
+            _generateError = ex.Message;
+        }
+        finally
+        {
+            _generating = false;
+        }
+    }
+
+    private async Task CompleteTripAsync()
+    {
+        _completing = true;
+        _completeError = null;
+        try
+        {
+            _trip = await TripsApi.CompleteAsync(TripId);
+            await LoadMemoriesAsync();
+        }
+        catch (ApiException ex)
+        {
+            _completeError = ex.Message;
+        }
+        finally
+        {
+            _completing = false;
+        }
+    }
+
+    private async Task SaveReflectionAsync(int memoryId)
+    {
+        _savingReflectionId = memoryId;
+        try
+        {
+            var text = _reflectionDrafts.TryGetValue(memoryId, out var value) ? value : string.Empty;
+            await MemoriesApi.UpdateReflectionAsync(memoryId, new UpdateTripMemoryReflectionDto(text));
+            await LoadMemoriesAsync();
+        }
+        catch (ApiException)
+        {
+            // Best-effort — a future pass can surface this as an inline error.
+        }
+        finally
+        {
+            _savingReflectionId = null;
+        }
+    }
+}

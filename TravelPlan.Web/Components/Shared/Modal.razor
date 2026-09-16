@@ -1,0 +1,28 @@
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <p class="modal-title">@Title</p>
+                <button type="button" class="modal-close" @onclick="Close" aria-label="Close">&times;</button>
+            </div>
+            @ChildContent
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> IsOpenChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private Task Close() => IsOpenChanged.InvokeAsync(false);
+}

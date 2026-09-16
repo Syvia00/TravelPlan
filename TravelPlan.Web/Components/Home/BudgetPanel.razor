@@ -1,0 +1,110 @@
+@inject BudgetItemsApiClient BudgetApi
+
+<p class="eyebrow">BUDGET</p>
+
+@if (TripsLoading || _loadingTotals)
+{
+    <p class="big-num">Loading…</p>
+}
+else
+{
+    <p class="big-num">@FormatMoney(_grandTotal, _currency) tracked</p>
+    <div class="card">
+        @if (_categoryTotals.Count == 0)
+        {
+            <div class="row"><span>No expenses yet</span><span>—</span></div>
+        }
+        else
+        {
+            @foreach (var row in _categoryTotals)
+            {
+                <div class="row"><span>@row.Category</span><span>@FormatMoney(row.Total, _currency)</span></div>
+            }
+        }
+    </div>
+}
+
+<button type="button" class="btn primary" @onclick="OpenNewTripModal">+ New trip</button>
+<button type="button" class="btn ghost" @onclick="OpenStayModal" disabled="@(Trips.Count == 0)"
+        title="@(Trips.Count == 0 ? "Create a trip first" : null)">Add stay</button>
+<button type="button" class="btn ghost" @onclick="OpenTransportModal" disabled="@(Trips.Count == 0)"
+        title="@(Trips.Count == 0 ? "Create a trip first" : null)">Add transport</button>
+
+<TripFormModal @ref="_tripModal" OnCreated="HandleTripCreated" />
+<AccommodationFormModal @ref="_stayModal" Trips="@Trips" />
+<TravelLegFormModal @ref="_transportModal" Trips="@Trips" />
+
+@code {
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public bool TripsLoading { get; set; }
+
+    [Parameter]
+    public EventCallback OnTripSaved { get; set; }
+
+    private TripFormModal? _tripModal;
+    private AccommodationFormModal? _stayModal;
+    private TravelLegFormModal? _transportModal;
+    private bool _loadingTotals = true;
+    private List<CategoryTotal> _categoryTotals = new();
+    private decimal _grandTotal;
+    private string _currency = "USD";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!TripsLoading)
+        {
+            await LoadTotalsAsync();
+        }
+    }
+
+    private async Task LoadTotalsAsync()
+    {
+        _loadingTotals = true;
+        var totals = new Dictionary<BudgetCategory, decimal>();
+        string? currency = null;
+
+        foreach (var trip in Trips)
+        {
+            var items = await BudgetApi.ListByTripAsync(trip.Id);
+            foreach (var item in items)
+            {
+                totals[item.Category] = totals.GetValueOrDefault(item.Category) + item.Amount;
+                currency ??= item.Currency;
+            }
+        }
+
+        _categoryTotals = totals
+            .OrderByDescending(kv => kv.Value)
+            .Select(kv => new CategoryTotal(kv.Key.ToString(), kv.Value))
+            .ToList();
+        _grandTotal = totals.Values.Sum();
+        _currency = currency ?? "USD";
+        _loadingTotals = false;
+    }
+
+    private void OpenNewTripModal() => _tripModal?.Open();
+
+    private void OpenStayModal() => _stayModal?.Open();
+
+    private void OpenTransportModal() => _transportModal?.Open();
+
+    private async Task HandleTripCreated()
+    {
+        await OnTripSaved.InvokeAsync();
+        await LoadTotalsAsync();
+    }
+
+    private static string FormatMoney(decimal amount, string currency) => currency switch
+    {
+        "USD" => $"${amount:N0}",
+        "JPY" => $"¥{amount:N0}",
+        "EUR" => $"€{amount:N0}",
+        "GBP" => $"£{amount:N0}",
+        _ => $"{amount:N0} {currency}",
+    };
+
+    private record CategoryTotal(string Category, decimal Total);
+}

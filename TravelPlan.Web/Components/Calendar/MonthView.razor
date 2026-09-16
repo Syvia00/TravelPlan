@@ -1,0 +1,48 @@
+<div class="grid7">
+    <div class="dow">S</div><div class="dow">M</div><div class="dow">T</div><div class="dow">W</div><div class="dow">T</div><div class="dow">F</div><div class="dow">S</div>
+    @foreach (var cell in BuildCells())
+    {
+        @if (cell is null)
+        {
+            <div class="day blank"></div>
+        }
+        else
+        {
+            <button type="button" class="day @(HasTrip(cell.Value) ? "trip" : "")"
+                    @onclick="() => OnDaySelected.InvokeAsync(cell.Value)">
+                @cell.Value.Day
+            </button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public DateOnly FocusDate { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public EventCallback<DateOnly> OnDaySelected { get; set; }
+
+    private List<DateOnly?> BuildCells()
+    {
+        var first = new DateOnly(FocusDate.Year, FocusDate.Month, 1);
+        var daysInMonth = DateTime.DaysInMonth(FocusDate.Year, FocusDate.Month);
+        var leadingBlanks = (int)first.DayOfWeek;
+
+        var cells = new List<DateOnly?>();
+        for (var i = 0; i < leadingBlanks; i++)
+        {
+            cells.Add(null);
+        }
+        for (var d = 1; d <= daysInMonth; d++)
+        {
+            cells.Add(new DateOnly(FocusDate.Year, FocusDate.Month, d));
+        }
+        return cells;
+    }
+
+    private bool HasTrip(DateOnly date) => Trips.Any(t => t.StartDate <= date && date <= t.EndDate);
+}

@@ -1,0 +1,31 @@
+<div class="grid-year">
+    @for (var m = 1; m <= 12; m++)
+    {
+        var month = m;
+        <button type="button" class="year-month @(HasTripInMonth(month) ? "trip" : "")"
+                @onclick="() => OnMonthSelected.InvokeAsync(new DateOnly(FocusDate.Year, month, 1))">
+            @MonthAbbr[month - 1]
+        </button>
+    }
+</div>
+
+@code {
+    private static readonly string[] MonthAbbr =
+        { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+    [Parameter]
+    public DateOnly FocusDate { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public EventCallback<DateOnly> OnMonthSelected { get; set; }
+
+    private bool HasTripInMonth(int month)
+    {
+        var start = new DateOnly(FocusDate.Year, month, 1);
+        var end = start.AddMonths(1).AddDays(-1);
+        return Trips.Any(t => t.StartDate <= end && t.EndDate >= start);
+    }
+}

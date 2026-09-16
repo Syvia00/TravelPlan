@@ -1,0 +1,144 @@
+<a class="settings-icon" href="/settings" title="Settings" aria-label="Settings">&#9881;</a>
+
+<div class="cal-head">
+    <p class="cal-title">@Title</p>
+    <div class="zoom">
+        <button type="button" class="@(_zoom == CalendarZoom.Year ? "on" : "")" @onclick='() => SetZoom(CalendarZoom.Year)'>Year</button>
+        <button type="button" class="@(_zoom == CalendarZoom.Month ? "on" : "")" @onclick='() => SetZoom(CalendarZoom.Month)'>Month</button>
+        <button type="button" class="@(_zoom == CalendarZoom.Week ? "on" : "")" @onclick='() => SetZoom(CalendarZoom.Week)'>Week</button>
+        <button type="button" class="@(_zoom == CalendarZoom.Day ? "on" : "")" @onclick='() => SetZoom(CalendarZoom.Day)'>Day</button>
+    </div>
+</div>
+
+<div class="cal-nav">
+    <button type="button" class="cal-nav-btn" @onclick="Previous" aria-label="Previous">&#8249;</button>
+    <button type="button" class="cal-nav-btn today" @onclick="GoToToday">Today</button>
+    <button type="button" class="cal-nav-btn" @onclick="Next" aria-label="Next">&#8250;</button>
+</div>
+
+@if (TripsLoading)
+{
+    <p>Loading…</p>
+}
+else
+{
+    @switch (_zoom)
+    {
+        case CalendarZoom.Year:
+            <YearView FocusDate="@_focusDate" Trips="@Trips" OnMonthSelected="GoToMonth" />
+            break;
+        case CalendarZoom.Month:
+            <MonthView FocusDate="@_focusDate" Trips="@Trips" OnDaySelected="GoToDay" />
+            break;
+        case CalendarZoom.Week:
+            <WeekView FocusDate="@_focusDate" Trips="@Trips" OnDaySelected="GoToDay" />
+            break;
+        case CalendarZoom.Day:
+            <DayView Date="@_focusDate" Trips="@Trips" />
+            break;
+    }
+
+    <div class="card" style="margin-top:16px;">
+        @{ var tripsInView = TripsInView.ToList(); }
+        @if (tripsInView.Count == 0)
+        {
+            <div class="trip-tag muted">No trips in view</div>
+        }
+        else
+        {
+            @foreach (var trip in tripsInView)
+            {
+                <a class="trip-tag" href="@($"/trips/{trip.Id}/report")" title="View report"><span class="dot"></span>@trip.Title — @FormatRange(trip)</a>
+            }
+        }
+    </div>
+}
+
+@code {
+    private enum CalendarZoom { Year, Month, Week, Day }
+
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public bool TripsLoading { get; set; }
+
+    private CalendarZoom _zoom = CalendarZoom.Month;
+    private DateOnly _focusDate = DateOnly.FromDateTime(DateTime.Today);
+
+    private string Title => _zoom switch
+    {
+        CalendarZoom.Year => _focusDate.Year.ToString(),
+        CalendarZoom.Month => _focusDate.ToString("MMMM yyyy"),
+        CalendarZoom.Week => WeekRangeLabel(_focusDate),
+        CalendarZoom.Day => _focusDate.ToString("dddd, MMM d"),
+        _ => string.Empty,
+    };
+
+    private (DateOnly Start, DateOnly End) ViewRange => _zoom switch
+    {
+        CalendarZoom.Year => (new DateOnly(_focusDate.Year, 1, 1), new DateOnly(_focusDate.Year, 12, 31)),
+        CalendarZoom.Month => (new DateOnly(_focusDate.Year, _focusDate.Month, 1),
+            new DateOnly(_focusDate.Year, _focusDate.Month, DateTime.DaysInMonth(_focusDate.Year, _focusDate.Month))),
+        CalendarZoom.Week => (CalendarMath.StartOfWeek(_focusDate), CalendarMath.StartOfWeek(_focusDate).AddDays(6)),
+        CalendarZoom.Day => (_focusDate, _focusDate),
+        _ => (_focusDate, _focusDate),
+    };
+
+    private IEnumerable<TripDto> TripsInView
+    {
+        get
+        {
+            var (start, end) = ViewRange;
+            return Trips.Where(t => t.StartDate <= end && t.EndDate >= start).OrderBy(t => t.StartDate);
+        }
+    }
+
+    private void SetZoom(CalendarZoom zoom) => _zoom = zoom;
+
+    private void Previous() => _focusDate = _zoom switch
+    {
+        CalendarZoom.Year => _focusDate.AddYears(-1),
+        CalendarZoom.Month => _focusDate.AddMonths(-1),
+        CalendarZoom.Week => _focusDate.AddDays(-7),
+        CalendarZoom.Day => _focusDate.AddDays(-1),
+        _ => _focusDate,
+    };
+
+    private void Next() => _focusDate = _zoom switch
+    {
+        CalendarZoom.Year => _focusDate.AddYears(1),
+        CalendarZoom.Month => _focusDate.AddMonths(1),
+        CalendarZoom.Week => _focusDate.AddDays(7),
+        CalendarZoom.Day => _focusDate.AddDays(1),
+        _ => _focusDate,
+    };
+
+    private void GoToToday() => _focusDate = DateOnly.FromDateTime(DateTime.Today);
+
+    private void GoToMonth(DateOnly date)
+    {
+        _focusDate = date;
+        _zoom = CalendarZoom.Month;
+    }
+
+    private void GoToDay(DateOnly date)
+    {
+        _focusDate = date;
+        _zoom = CalendarZoom.Day;
+    }
+
+    private static string WeekRangeLabel(DateOnly date)
+    {
+        var start = CalendarMath.StartOfWeek(date);
+        var end = start.AddDays(6);
+        return start.Month == end.Month
+            ? $"{start:MMM d}–{end.Day}, {start:yyyy}"
+            : $"{start:MMM d} – {end:MMM d}, {start:yyyy}";
+    }
+
+    private static string FormatRange(TripDto trip) =>
+        trip.StartDate.Month == trip.EndDate.Month
+            ? $"{trip.StartDate:MMM d}–{trip.EndDate.Day}"
+            : $"{trip.StartDate:MMM d} – {trip.EndDate:MMM d}";
+}

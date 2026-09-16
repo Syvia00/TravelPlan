@@ -1,0 +1,142 @@
+@implements IDisposable
+@inject PlanItemsApiClient PlanItemsApi
+
+@if (_hasContent)
+{
+    <p class="eyebrow">NEXT UP</p>
+    <p class="big-num countdown">@_label</p>
+}
+
+@code {
+    /// <summary>How often the display re-derives itself. Cheap — one API call at most, only
+    /// while a trip is actively underway — so a short interval keeps "next stop in..." honest
+    /// without worrying about cost.</summary>
+    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
+
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public bool TripsLoading { get; set; }
+
+    private Timer? _timer;
+    private bool _disposed;
+    private bool _hasContent;
+    private string _label = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RecomputeAsync();
+        _timer = new Timer(OnTick, null, TickInterval, TickInterval);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!TripsLoading)
+        {
+            await RecomputeAsync();
+        }
+    }
+
+    private void OnTick(object? state)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            await RecomputeAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task RecomputeAsync()
+    {
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+
+        var activeTrip = Trips.FirstOrDefault(t => t.StartDate <= today && today <= t.EndDate);
+        if (activeTrip is not null)
+        {
+            await RecomputeForActiveTripAsync(activeTrip, now, today);
+            return;
+        }
+
+        var nextTrip = Trips
+            .Where(t => t.StartDate > today)
+            .OrderBy(t => t.StartDate)
+            .FirstOrDefault();
+
+        if (nextTrip is not null)
+        {
+            var days = nextTrip.StartDate.DayNumber - today.DayNumber;
+            _label = days == 1
+                ? $"Tomorrow: {nextTrip.Title}"
+                : $"{days} days until {nextTrip.Title}";
+            _hasContent = true;
+            return;
+        }
+
+        _hasContent = false;
+        _label = string.Empty;
+    }
+
+    private async Task RecomputeForActiveTripAsync(TripDto trip, DateTime now, DateOnly today)
+    {
+        PlanItemDto? nextStop = null;
+        try
+        {
+            var items = await PlanItemsApi.ListByTripAsync(trip.Id);
+            nextStop = items
+                .Where(i => i.Date is not null && i.Time is not null)
+                .Select(i => (Item: i, At: i.Date!.Value.ToDateTime(i.Time!.Value)))
+                .Where(x => x.At >= now)
+                .OrderBy(x => x.At)
+                .Select(x => x.Item)
+                .FirstOrDefault();
+        }
+        catch (ApiException)
+        {
+            // Best-effort — fall through to the day-count summary below.
+        }
+
+        if (nextStop is not null)
+        {
+            var at = nextStop.Date!.Value.ToDateTime(nextStop.Time!.Value);
+            _label = $"Next stop in {FormatDuration(at - now)}: {nextStop.Title}";
+        }
+        else
+        {
+            var dayNumber = today.DayNumber - trip.StartDate.DayNumber + 1;
+            var totalDays = trip.EndDate.DayNumber - trip.StartDate.DayNumber + 1;
+            _label = $"Day {dayNumber} of {totalDays} — {trip.Title}";
+        }
+
+        _hasContent = true;
+    }
+
+    private static string FormatDuration(TimeSpan span)
+    {
+        if (span.TotalHours >= 1)
+        {
+            var hours = (int)Math.Round(span.TotalHours);
+            return hours <= 1 ? "1 hour" : $"{hours} hours";
+        }
+
+        var minutes = Math.Max(1, (int)Math.Round(span.TotalMinutes));
+        return minutes <= 1 ? "1 minute" : $"{minutes} minutes";
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+    }
+}

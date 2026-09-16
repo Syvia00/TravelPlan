@@ -1,0 +1,34 @@
+<div class="grid7 week-row">
+    @foreach (var date in WeekDates())
+    {
+        <button type="button" class="day week-day @(HasTrip(date) ? "trip" : "") @(date == Today ? "is-today" : "")"
+                @onclick="() => OnDaySelected.InvokeAsync(date)">
+            <span class="week-dow">@date.ToString("ddd")</span>
+            <span class="week-num">@date.Day</span>
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public DateOnly FocusDate { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
+
+    [Parameter]
+    public EventCallback<DateOnly> OnDaySelected { get; set; }
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private IEnumerable<DateOnly> WeekDates()
+    {
+        var start = CalendarMath.StartOfWeek(FocusDate);
+        for (var i = 0; i < 7; i++)
+        {
+            yield return start.AddDays(i);
+        }
+    }
+
+    private bool HasTrip(DateOnly date) => Trips.Any(t => t.StartDate <= date && date <= t.EndDate);
+}

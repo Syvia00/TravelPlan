@@ -1,0 +1,101 @@
+@inject TripsApiClient TripsApi
+
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="New trip">
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <div class="form-row">
+            <label for="trip-title">Title</label>
+            <InputText id="trip-title" @bind-Value="_model.Title" />
+        </div>
+        <div class="form-row">
+            <label for="trip-start">Start date</label>
+            <InputDate id="trip-start" @bind-Value="_model.StartDate" />
+        </div>
+        <div class="form-row">
+            <label for="trip-end">End date</label>
+            <InputDate id="trip-end" @bind-Value="_model.EndDate" />
+        </div>
+        <div class="form-row">
+            <label for="trip-currency">Currency</label>
+            <InputText id="trip-currency" @bind-Value="_model.Currency" maxlength="3" />
+        </div>
+        <div class="form-row">
+            <label for="trip-budget">Budget</label>
+            <InputNumber id="trip-budget" @bind-Value="_model.TotalBudget" />
+        </div>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="form-errors">
+                @foreach (var err in _errors)
+                {
+                    <li>@err</li>
+                }
+            </ul>
+        }
+
+        <button type="submit" class="btn primary" disabled="@_submitting">@(_submitting ? "Saving…" : "Create trip")</button>
+    </EditForm>
+</Modal>
+
+@code {
+    [Parameter]
+    public EventCallback OnCreated { get; set; }
+
+    private bool _isOpen;
+    private bool _submitting;
+    private List<string> _errors = new();
+    private TripFormModel _model = new();
+
+    public void Open()
+    {
+        _model = new TripFormModel();
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    private Task OnIsOpenChanged(bool open)
+    {
+        _isOpen = open;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _errors.Clear();
+        try
+        {
+            var dto = new CreateTripDto(
+                _model.Title,
+                null,
+                _model.StartDate,
+                _model.EndDate,
+                string.IsNullOrWhiteSpace(_model.Currency) ? null : _model.Currency.ToUpperInvariant(),
+                _model.TotalBudget);
+
+            await TripsApi.CreateAsync(dto);
+            _isOpen = false;
+            await OnCreated.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            _errors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private class TripFormModel
+    {
+        public string Title { get; set; } = string.Empty;
+        public DateOnly StartDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateOnly EndDate { get; set; } = DateOnly.FromDateTime(DateTime.Today.AddDays(3));
+        public string Currency { get; set; } = "USD";
+        public decimal? TotalBudget { get; set; }
+    }
+}
