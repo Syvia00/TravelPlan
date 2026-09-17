@@ -6,7 +6,10 @@ namespace TravelPlan.Api.Data;
 
 public class TravelPlanDbContext : DbContext
 {
-    public TravelPlanDbContext(DbContextOptions<TravelPlanDbContext> options)
+    // Non-generic DbContextOptions so TravelPlanSqliteDbContext/TravelPlanSqlServerDbContext can
+    // each pass through their own DbContextOptions<TDerived> — see those files for why the two
+    // providers need distinct context types at all.
+    public TravelPlanDbContext(DbContextOptions options)
         : base(options)
     {
     }

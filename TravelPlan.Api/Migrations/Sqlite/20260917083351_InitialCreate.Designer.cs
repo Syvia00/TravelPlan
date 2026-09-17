@@ -8,11 +8,11 @@ using TravelPlan.Api.Data;
 
 #nullable disable
 
-namespace TravelPlan.Api.Migrations
+namespace TravelPlan.Api.Migrations.Sqlite
 {
-    [DbContext(typeof(TravelPlanDbContext))]
-    [Migration("20260916095925_TripCollaboratorUserRestrict")]
-    partial class TripCollaboratorUserRestrict
+    [DbContext(typeof(TravelPlanSqliteDbContext))]
+    [Migration("20260917083351_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -519,7 +519,7 @@ namespace TravelPlan.Api.Migrations
                     b.HasOne("TravelPlan.Shared.Models.Destination", "Destination")
                         .WithMany("Accommodations")
                         .HasForeignKey("DestinationId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("TravelPlan.Shared.Models.Trip", "Trip")
                         .WithMany("Accommodations")
@@ -567,7 +567,7 @@ namespace TravelPlan.Api.Migrations
                     b.HasOne("TravelPlan.Shared.Models.Destination", "Destination")
                         .WithMany("PlanItems")
                         .HasForeignKey("DestinationId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("TravelPlan.Shared.Models.Trip", "Trip")
                         .WithMany("PlanItems")

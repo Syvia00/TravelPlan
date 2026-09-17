@@ -19,30 +19,25 @@ var builder = WebApplication.CreateBuilder(args);
 // set" can't distinguish the two. Decoupled from ASPNETCORE_ENVIRONMENT too — Development still
 // selects the dev-auth bypass/Swagger/auto-migrate below even when pointed at the real Azure
 // SQL database, since Entra External ID isn't wired up yet (see README's "Dev-auth bypass").
+//
+// Each provider gets its own DbContext subclass (TravelPlanSqliteDbContext /
+// TravelPlanSqlServerDbContext) with its own Migrations/<Provider> folder, because migrations bake
+// in provider-specific column types at scaffold time — one shared history can't serve both. All
+// repositories/services depend only on the base TravelPlanDbContext, so registering by base type
+// here (AddDbContext<TravelPlanDbContext, TConcrete>) keeps this split invisible to them. See
+// docs/migrations.md for the resulting day-to-day migration workflow.
 var useSqlServer = string.Equals(builder.Configuration["DatabaseProvider"], "SqlServer", StringComparison.OrdinalIgnoreCase);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContext<TravelPlanDbContext>(options =>
+if (useSqlServer)
 {
-    if (useSqlServer)
-    {
-        options.UseSqlServer(connectionString);
-    }
-    else
-    {
-        options.UseSqlite(connectionString ?? "Data Source=travelplan.dev.db");
-    }
-
-    // The Migrations/ history is scaffolded once, under SQLite, and applied as-is to both
-    // providers — so EF's cross-provider model comparison always reports a difference (SQLite's
-    // TEXT-typed columns vs. what the SqlServer provider's own conventions would produce, e.g.
-    // nvarchar/datetime2) even though every migration has, in fact, been applied. That's a real,
-    // permanent, accepted characteristic of sharing one migration history across two providers —
-    // not a sign of an actually-missing migration — so it's suppressed here rather than crashing
-    // Migrate() on every startup. `dotnet ef migrations has-pending-model-changes` during
-    // development (run against whichever single provider is active then) still catches a
-    // genuinely forgotten migration.
-    options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
-});
+    builder.Services.AddDbContext<TravelPlanDbContext, TravelPlanSqlServerDbContext>(options =>
+        options.UseSqlServer(connectionString));
+}
+else
+{
+    builder.Services.AddDbContext<TravelPlanDbContext, TravelPlanSqliteDbContext>(options =>
+        options.UseSqlite(connectionString ?? "Data Source=travelplan.dev.db"));
+}
 
 // CORS — allows the Blazor WebAssembly dev server's origin to call this API. Production origins
 // (Azure Static Web Apps) get their own policy when the app is actually deployed in Phase 2.
@@ -50,7 +45,10 @@ const string WebAppCorsPolicy = "WebApp";
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddCors(options => options.AddPolicy(WebAppCorsPolicy, policy =>
-        policy.WithOrigins("https://localhost:7156", "http://localhost:5169")
+        policy.WithOrigins(
+                "https://localhost:7156",
+                "http://localhost:5169",
+                "https://jolly-sand-066886f10.5.azurestaticapps.net")
             .AllowAnyHeader()
             .AllowAnyMethod()));
 }

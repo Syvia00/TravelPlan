@@ -2,20 +2,17 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TravelPlan.Api.Data;
 
 #nullable disable
 
-namespace TravelPlan.Api.Migrations
+namespace TravelPlan.Api.Migrations.Sqlite
 {
-    [DbContext(typeof(TravelPlanDbContext))]
-    [Migration("20260917070308_DestinationFksRestrict")]
-    partial class DestinationFksRestrict
+    [DbContext(typeof(TravelPlanSqliteDbContext))]
+    partial class TravelPlanSqliteDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");

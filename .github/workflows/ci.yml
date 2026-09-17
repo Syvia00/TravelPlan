@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-verify-migrations:
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.CI_MSSQL_SA_PASSWORD }}
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $MSSQL_SA_PASSWORD -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 10.0.*
+
+      # Each provider gets its own DbContext subclass and its own Migrations/<Provider> folder
+      # (see TravelPlan.Api/Data/TravelPlanSqliteDbContext.cs) because migrations bake in
+      # provider-specific column types at scaffold time. This job is the "repeatable process"
+      # that replaces the manual EnsureCreated+hand-baseline dance from Session 9: every PR
+      # that changes the model must produce migrations that (a) apply cleanly against a fresh
+      # database of EACH provider, and (b) leave no pending model changes for EITHER context.
+      # A migration that only works for one provider fails the build here, not in production.
+
+      - name: Verify SQLite migrations apply cleanly
+        working-directory: TravelPlan.Api
+        run: |
+          dotnet ef database update --context TravelPlanSqliteDbContext \
+            --connection "Data Source=${{ runner.temp }}/ci-verify.db"
+
+      - name: Verify no pending model changes (SQLite)
+        working-directory: TravelPlan.Api
+        run: dotnet ef migrations has-pending-model-changes --context TravelPlanSqliteDbContext
+
+      - name: Verify SQL Server migrations apply cleanly
+        working-directory: TravelPlan.Api
+        env:
+          TRAVELPLAN_SQLSERVER_DESIGNTIME_CONNECTION: "Server=tcp:localhost,1433;Initial Catalog=TravelPlanDbCi;User ID=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;"
+        run: |
+          dotnet ef database update --context TravelPlanSqlServerDbContext \
+            --connection "$TRAVELPLAN_SQLSERVER_DESIGNTIME_CONNECTION"
+
+      - name: Verify no pending model changes (SQL Server)
+        working-directory: TravelPlan.Api
+        env:
+          TRAVELPLAN_SQLSERVER_DESIGNTIME_CONNECTION: "Server=tcp:localhost,1433;Initial Catalog=TravelPlanDbCi;User ID=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;"
+        run: dotnet ef migrations has-pending-model-changes --context TravelPlanSqlServerDbContext

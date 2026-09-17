@@ -374,18 +374,25 @@ private const string BaseUrl = "https://travelplan-api.azurewebsites.net/";
 
 ## 11. EF Core migrations
 
+The API applies pending migrations automatically on startup (`Database.Migrate()` in
+`Program.cs`), so this section is normally only needed to apply a migration manually or out of
+band. SQLite (dev) and SQL Server (Azure) each have their own migration history — see
+`docs/migrations.md` for why and for the full day-to-day workflow. To apply manually against Azure
+SQL:
+
 ```bash
 cd TravelPlan.Api
 
-dotnet ef database update \
+dotnet ef database update --context TravelPlanSqlServerDbContext \
   --connection "$SQL_CONN"
 ```
 
-If you need to create a new migration after schema changes:
+If you need to create a new migration after schema changes, scaffold it for **both** providers and
+verify each applies cleanly before merging — see `docs/migrations.md`:
 
 ```bash
-dotnet ef migrations add <MigrationName>
-dotnet ef database update --connection "$SQL_CONN"
+dotnet ef migrations add <MigrationName> --context TravelPlanSqliteDbContext -o Migrations/Sqlite
+dotnet ef migrations add <MigrationName> --context TravelPlanSqlServerDbContext -o Migrations/SqlServer
 ```
 
 ---
