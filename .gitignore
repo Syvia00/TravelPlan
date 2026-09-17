@@ -18,6 +18,7 @@ artifacts/
 
 # VS Code
 .vscode/
+.claude/
 
 # User-specific / local-only files
 *.rsuser
