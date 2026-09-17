@@ -1,0 +1,45 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+publish/
+artifacts/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/
+
+# User-specific / local-only files
+*.rsuser
+*.userprefs
+
+# User secrets — dotnet user-secrets stores these outside the repo by default, but never
+# commit one that ends up here (e.g. copied in manually, or a local override file).
+**/secrets.json
+**/appsettings.*.local.json
+**/appsettings.Local.json
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+# Local SQLite dev database (see README's "Local setup" section)
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+.DS_Store
+Thumbs.db

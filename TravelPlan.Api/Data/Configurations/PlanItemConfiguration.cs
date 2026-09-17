@@ -18,9 +18,14 @@ public class PlanItemConfiguration : IEntityTypeConfiguration<PlanItem>
             .HasForeignKey(p => p.TripId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // See the matching comment in AccommodationConfiguration — same multiple-cascade-paths
+        // conflict (Trips -> PlanItems direct Cascade vs. Trips -> Destinations -> PlanItems),
+        // only surfaced once migrations first ran against real SQL Server. Restrict is safe
+        // today (no Destinations-delete endpoint exists yet); a whole-Trip delete still works
+        // via the direct cascade above.
         builder.HasOne(p => p.Destination)
             .WithMany(d => d.PlanItems)
             .HasForeignKey(p => p.DestinationId)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

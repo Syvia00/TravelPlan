@@ -180,8 +180,8 @@ or a specific user by foreign key.
 | Trips → TripMemories | **Cascade** |
 | Trips → TripCollaborators | **Cascade** |
 | Trips → TripShareLinks | **Cascade** |
-| Destinations → Accommodations | **Set null** (DestinationId becomes null) |
-| Destinations → PlanItems | **Set null** (DestinationId becomes null) |
+| Destinations → Accommodations | **Restrict** — app nulls out `DestinationId` on a destination's `Accommodations` explicitly before deleting the `Destinations` row |
+| Destinations → PlanItems | **Restrict** — app nulls out `DestinationId` on a destination's `PlanItems` explicitly before deleting the `Destinations` row |
 
 > **Why `Users → TripCollaborators` is Restrict, not Cascade**: `Users → Trips`
 > and `Trips → TripCollaborators` are both cascade, so a direct cascade from
@@ -191,6 +191,16 @@ or a specific user by foreign key.
 > TripCollaborators` cascade still covers the normal case of a trip being
 > deleted; the app only needs to explicitly clean up a user's collaborator rows
 > when deleting the `Users` row itself.
+>
+> **Why `Destinations → Accommodations`/`PlanItems` are Restrict, not Set null**:
+> the same multiple-cascade-paths shape — `Trips → Accommodations`/`PlanItems`
+> direct Cascade, plus `Trips → Destinations` Cascade → `Destinations →
+> Accommodations`/`PlanItems` — both reaching the same table from `Trips`. Also
+> only caught once migrations first ran against real SQL Server (Session 9), not
+> at design time. Deleting a whole trip is unaffected — the direct `Trips →
+> Accommodations`/`PlanItems` cascade already covers it. There's no
+> Destinations-delete endpoint yet; when one ships, it must explicitly null out
+> `DestinationId` on the destination's `Accommodations`/`PlanItems` first.
 
 ---
 

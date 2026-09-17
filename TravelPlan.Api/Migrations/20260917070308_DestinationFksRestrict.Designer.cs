@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TravelPlan.Api.Data;
 
@@ -10,9 +11,11 @@ using TravelPlan.Api.Data;
 namespace TravelPlan.Api.Migrations
 {
     [DbContext(typeof(TravelPlanDbContext))]
-    partial class TravelPlanDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917070308_DestinationFksRestrict")]
+    partial class DestinationFksRestrict
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
