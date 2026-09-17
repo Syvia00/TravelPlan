@@ -31,11 +31,14 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # No .sln at repo root, so bare `dotnet restore`/`build` has no project to find (MSB1003).
+      # Restoring/building TravelPlan.Api directly pulls in TravelPlan.Shared via its project
+      # reference — TravelPlan.Web isn't needed for migration verification.
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore TravelPlan.Api/TravelPlan.Api.csproj
 
       - name: Build
-        run: dotnet build --no-restore
+        run: dotnet build TravelPlan.Api/TravelPlan.Api.csproj --no-restore
 
       - name: Install dotnet-ef
         run: dotnet tool install --global dotnet-ef --version 10.0.*
