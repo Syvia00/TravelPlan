@@ -9,18 +9,28 @@ namespace TravelPlan.Api.Services;
 /// </summary>
 public class TripCompletionBackgroundService : BackgroundService
 {
-    // Dev-friendly cadence — cheap to run (a handful of trips at most, most sweeps a no-op) and
-    // frequent enough that a trip completes promptly after its EndDate passes without needing a
-    // real scheduler (Azure Functions timer trigger, etc.), which is Phase 2+ infrastructure.
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(15);
+    // Default is deliberately a few hours, not minutes: App Service runs continuously, so every
+    // sweep resets Azure SQL serverless's idle timer — a short interval (this used to be a fixed
+    // 15 minutes) never lets the database reach its 1-hour auto-pause threshold, which burns
+    // money for no benefit while there are no real users to complete trips promptly for. Configure
+    // via "CompletionSweepIntervalMinutes" once near-real-time completion actually matters (i.e.
+    // once real users exist) — see deployment-runbook.md.
+    private const int DefaultCheckIntervalMinutes = 240;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TripCompletionBackgroundService> _logger;
+    private readonly TimeSpan _checkInterval;
 
-    public TripCompletionBackgroundService(IServiceScopeFactory scopeFactory, ILogger<TripCompletionBackgroundService> logger)
+    public TripCompletionBackgroundService(
+        IServiceScopeFactory scopeFactory,
+        ILogger<TripCompletionBackgroundService> logger,
+        IConfiguration configuration)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+
+        var minutes = configuration.GetValue("CompletionSweepIntervalMinutes", DefaultCheckIntervalMinutes);
+        _checkInterval = TimeSpan.FromMinutes(minutes);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -31,7 +41,7 @@ public class TripCompletionBackgroundService : BackgroundService
 
             try
             {
-                await Task.Delay(CheckInterval, stoppingToken);
+                await Task.Delay(_checkInterval, stoppingToken);
             }
             catch (OperationCanceledException)
             {

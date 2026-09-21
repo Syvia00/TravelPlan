@@ -1,9 +1,10 @@
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using FluentValidation;
-using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.EntityFrameworkCore;
-using TravelPlan.Api.Auth;
+using Microsoft.Identity.Web;
 using TravelPlan.Api.Data;
 using TravelPlan.Api.Middleware;
 using TravelPlan.Api.Repositories;
@@ -17,8 +18,8 @@ var builder = WebApplication.CreateBuilder(args);
 // heuristic on whether ConnectionStrings:DefaultConnection happens to be non-empty: local dev
 // already puts the SQLite file path in that same key (appsettings.Development.json), so "is it
 // set" can't distinguish the two. Decoupled from ASPNETCORE_ENVIRONMENT too — Development still
-// selects the dev-auth bypass/Swagger/auto-migrate below even when pointed at the real Azure
-// SQL database, since Entra External ID isn't wired up yet (see README's "Dev-auth bypass").
+// selects Swagger/auto-migrate below even when pointed at the real Azure SQL database; auth
+// itself no longer depends on the environment (see the AzureAd/JwtBearer setup below).
 //
 // Each provider gets its own DbContext subclass (TravelPlanSqliteDbContext /
 // TravelPlanSqlServerDbContext) with its own Migrations/<Provider> folder, because migrations bake
@@ -53,12 +54,49 @@ if (builder.Environment.IsDevelopment())
             .AllowAnyMethod()));
 }
 
-// Auth — DevAuthHandler only, in Development. Entra External ID + phone OTP land in Phase 3.
-var authenticationBuilder = builder.Services.AddAuthentication(DevAuthHandler.SchemeName);
-if (builder.Environment.IsDevelopment())
+// Auth — Entra External ID (CIAM), JWT bearer validation. Phone OTP (Azure Communication
+// Services) is deliberately deferred — see deployment-runbook.md section 5.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+
+// External ID's v2.0 tokens carry claims under their raw JWT names ("oid"/"email"/"name"), not
+// the ClaimTypes.* URIs UserSyncMiddleware reads — normalize them once here so that middleware
+// (and anything else reading ClaimTypes.*) doesn't need to know the token's actual shape. "oid"
+// is the stable per-user object ID; "sub" is the fallback for token shapes that omit it.
+builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
 {
-    authenticationBuilder.AddScheme<AuthenticationSchemeOptions, DevAuthHandler>(DevAuthHandler.SchemeName, options => { });
-}
+    var innerOnTokenValidated = options.Events?.OnTokenValidated;
+    options.Events ??= new JwtBearerEvents();
+    options.Events.OnTokenValidated = async context =>
+    {
+        if (innerOnTokenValidated is not null)
+        {
+            await innerOnTokenValidated(context);
+        }
+
+        if (context.Principal?.Identity is ClaimsIdentity identity)
+        {
+            var externalAuthId = identity.FindFirst("oid")?.Value ?? identity.FindFirst("sub")?.Value;
+            if (externalAuthId is not null)
+            {
+                identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, externalAuthId));
+            }
+
+            var email = identity.FindFirst("email")?.Value ?? identity.FindFirst("emails")?.Value;
+            if (email is not null)
+            {
+                identity.AddClaim(new Claim(ClaimTypes.Email, email));
+            }
+
+            var name = identity.FindFirst("name")?.Value;
+            if (name is not null)
+            {
+                identity.AddClaim(new Claim(ClaimTypes.Name, name));
+            }
+        }
+    };
+});
+
 builder.Services.AddAuthorization();
 
 // Validation

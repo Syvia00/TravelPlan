@@ -1,6 +1,6 @@
 # TravelPlan
 
-A full-stack travel planning application built with .NET 8. Plan trips, track
+A full-stack travel planning application built with .NET 10. Plan trips, track
 budgets, log itineraries, and generate trip memory reports — accessible from a
 browser, a mobile device, or a shared link.
 
@@ -28,7 +28,7 @@ browser, a mobile device, or a shared link.
 | REST API | ASP.NET Core 10, EF Core 10 | Azure App Service |
 | Web frontend | Blazor WebAssembly | Azure Static Web Apps |
 | Mobile app | .NET MAUI (iOS & Android) | Sideload / App Store |
-| Shared library | .NET 8 class library | Referenced by all |
+| Shared library | .NET 10 class library | Referenced by all |
 | Database | SQLite (dev) / Azure SQL (prod) | Azure SQL Database |
 | Auth | Microsoft Entra External ID (email + Google) + a custom phone-OTP flow via Azure Communication Services | Azure |
 | Reports | SkiaSharp (image/PDF) + a Razor HTML template — no external AI service | In-process |
@@ -57,7 +57,7 @@ TravelPlan/
 │   ├── DTOs/                   # Request/response records grouped by domain
 │   └── Models/                 # EF entity classes + enums
 │
-├── TravelPlan.Api/             # ASP.NET Core 8 REST API
+├── TravelPlan.Api/             # ASP.NET Core 10 REST API
 │   ├── Controllers/            # MVC controllers (one per aggregate)
 │   ├── Data/                   # DbContext + EF Fluent-API configurations
 │   ├── Endpoints/              # Minimal-API endpoint groups

@@ -8,8 +8,10 @@ namespace TravelPlan.Api.Middleware;
 
 /// <summary>
 /// Upserts the local Users row for the authenticated identity's ExternalAuthId and resolves
-/// ICurrentUserService.UserId for the rest of the request pipeline. Works the same whether the
-/// identity came from DevAuthHandler or, later, a real IdP — it only reads standard claims.
+/// ICurrentUserService.UserId for the rest of the request pipeline. Reads only the standard
+/// ClaimTypes.* claims — Program.cs normalizes Entra External ID's raw JWT claims ("oid"/
+/// "email"/"name") onto them once, in the JwtBearerEvents.OnTokenValidated handler, so this
+/// middleware doesn't need to know the token's actual shape.
 /// </summary>
 public class UserSyncMiddleware
 {

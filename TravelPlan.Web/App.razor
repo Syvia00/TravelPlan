@@ -1,9 +1,35 @@
+@using TravelPlan.Web.Pages
+
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(App).Assembly" NotFoundPage="typeof(Pages.NotFound)">
         <Found Context="routeData">
-            <MainLayout>
+            @* The authentication callback route must render unconditionally, even while
+               logged out — it's the page MSAL redirects back to mid-login. Everything else is
+               gated: authenticated visitors get the open-book shell, everyone else gets the
+               closed-book landing page instead of the routed page. *@
+            @if (routeData.PageType == typeof(Pages.Authentication))
+            {
                 <PageTurnHost RouteData="@routeData" />
-            </MainLayout>
+            }
+            else
+            {
+                <AuthorizeView>
+                    <Authorized>
+                        <MainLayout>
+                            <PageTurnHost RouteData="@routeData" />
+                        </MainLayout>
+                    </Authorized>
+                    <NotAuthorized>
+                        <Landing />
+                    </NotAuthorized>
+                    <Authorizing>
+                        <div class="boot-loader">
+                            <p class="boot-wordmark">TravelPlan</p>
+                            <div class="boot-spinner"></div>
+                        </div>
+                    </Authorizing>
+                </AuthorizeView>
+            }
             <FocusOnNavigate RouteData="@routeData" Selector="h1" />
         </Found>
     </Router>

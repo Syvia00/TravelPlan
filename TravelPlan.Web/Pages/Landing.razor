@@ -1,0 +1,31 @@
+@* Unauthenticated entry point — see App.razor's <NotAuthorized>. Rendered outside MainLayout: no
+   NavMenu/settings icon/open-book shell, since a logged-out visitor hasn't opened the book yet.
+   Design source: TravelPlan-Project-Plan-v2.md section 4 ("closed diary, right side of screen,
+   cover reads 'Log in / Sign up.' App name/tagline on the left") — the mockup only covers the
+   opened two-page spread, so the cover's visual treatment (shadow stack, page tone, type) is
+   translated from it rather than copied. *@
+
+<div class="landing-stage">
+    <div class="landing-brand">
+        <h1 class="landing-wordmark">TravelPlan</h1>
+        <p class="landing-tagline">Plan the trip. Keep the memory.</p>
+    </div>
+
+    <div class="landing-book-wrap">
+        <div class="stack s2"></div>
+        <div class="stack s1"></div>
+        <button type="button" class="landing-cover" @onclick="SignIn">
+            <span class="landing-cover-label">Log in / Sign up</span>
+        </button>
+    </div>
+</div>
+
+@code {
+    [Inject]
+    private NavigationManager Navigation { get; set; } = default!;
+
+    private void SignIn()
+    {
+        Navigation.NavigateTo("authentication/login");
+    }
+}

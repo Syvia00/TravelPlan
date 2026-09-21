@@ -105,19 +105,27 @@ before a surprise bill, not after.
 ## 4. Microsoft Entra External ID tenant
 
 Replaces the old Azure AD B2C steps — Azure AD B2C has been unavailable for new
-tenants since May 2025. External ID must be created in the Azure Portal — it cannot
-be fully provisioned via CLI alone.
+tenants since May 2025. External ID tenants are created in the separate
+**Microsoft Entra admin center**, not via "Create a resource" in the regular
+Azure Portal — it cannot be fully provisioned via CLI alone.
 
 ### 4a. Create the External ID tenant
 
-1. Portal → **Create a resource** → search **Microsoft Entra External ID**
-2. Select **Create a new external tenant**
-3. Choose an **Organisation name** and **Initial domain name** (becomes
-   `<tenant>.onmicrosoft.com`)
-4. Select your subscription and the resource group created in step 3
-5. Click **Review + Create**
+1. Go to **https://entra.microsoft.com** (a different site from
+   portal.azure.com, same login) → **Identity** → **Overview** →
+   **Manage tenants**
+2. Select **Create**
+3. Select **External**, then **Continue**
+4. On the Basics tab, enter a **Tenant Name** and **Domain Name** (becomes
+   `<tenant>.onmicrosoft.com` — short/common names may already be taken
+   globally across all Microsoft tenants, not just your account; add random
+   characters if your first choice is rejected) and a **Country/Region**
+5. **Next: Add a subscription** → select your subscription and the resource
+   group created in step 3
+6. **Review + Create** → **Create**
 
-Note the **Tenant ID** and **Domain name** — paste them into the variables above.
+Note the **Tenant ID** and **Domain name** from the tenant's Overview page once
+created — paste them into the variables above.
 
 ### 4b. Register the API application
 
@@ -261,6 +269,19 @@ SQL_CONN="Server=tcp:${SQL_SERVER}.database.windows.net,1433;Initial Catalog=${S
 echo "$SQL_CONN"
 ```
 
+**Auto-pause vs. the completion sweep**: `--auto-pause-delay 60` only pauses the database after
+60 minutes with no activity — but App Service runs `TripCompletionBackgroundService` continuously,
+and every sweep is itself activity that resets that idle timer. A short sweep interval (it used to
+default to a fixed 15 minutes) means the database *never* reaches 60 idle minutes and never
+auto-pauses, quietly burning money for no benefit while there are no real users whose trips need
+completing promptly. The sweep interval is now configurable via the API's
+`CompletionSweepIntervalMinutes` app setting (section 10) and defaults to 240 minutes (4 hours) —
+long enough to let auto-pause actually trigger between sweeps. **Revisit this once real users
+exist**: once near-real-time trip completion actually matters to someone, either lower
+`CompletionSweepIntervalMinutes` back down (accepting that auto-pause won't help anymore) or,
+better, replace the in-process sweep with a real scheduler (e.g. an Azure Functions timer trigger
+calling the completion endpoint) that runs independently of whether the API is even warm.
+
 ---
 
 ## 8. App Service — API
@@ -336,8 +357,12 @@ az webapp config appsettings set \
     "AzureAdExternalId__TenantId=${EXTERNAL_ID_TENANT_ID}" \
     "AzureCommunicationServices__ConnectionString=${ACS_CONNECTION_STRING}" \
     "AzureMaps__SubscriptionKey=${MAPS_KEY}" \
-    "ExchangeRateApi__BaseUrl=https://api.frankfurter.dev"
+    "ExchangeRateApi__BaseUrl=https://api.frankfurter.dev" \
+    "CompletionSweepIntervalMinutes=240"
 ```
+
+`CompletionSweepIntervalMinutes` controls `TripCompletionBackgroundService`'s polling cadence —
+see the cost note under section 7 before lowering it.
 
 ### Web — `wwwroot/appsettings.json`
 
@@ -374,25 +399,18 @@ private const string BaseUrl = "https://travelplan-api.azurewebsites.net/";
 
 ## 11. EF Core migrations
 
-The API applies pending migrations automatically on startup (`Database.Migrate()` in
-`Program.cs`), so this section is normally only needed to apply a migration manually or out of
-band. SQLite (dev) and SQL Server (Azure) each have their own migration history — see
-`docs/migrations.md` for why and for the full day-to-day workflow. To apply manually against Azure
-SQL:
-
 ```bash
 cd TravelPlan.Api
 
-dotnet ef database update --context TravelPlanSqlServerDbContext \
+dotnet ef database update \
   --connection "$SQL_CONN"
 ```
 
-If you need to create a new migration after schema changes, scaffold it for **both** providers and
-verify each applies cleanly before merging — see `docs/migrations.md`:
+If you need to create a new migration after schema changes:
 
 ```bash
-dotnet ef migrations add <MigrationName> --context TravelPlanSqliteDbContext -o Migrations/Sqlite
-dotnet ef migrations add <MigrationName> --context TravelPlanSqlServerDbContext -o Migrations/SqlServer
+dotnet ef migrations add <MigrationName>
+dotnet ef database update --connection "$SQL_CONN"
 ```
 
 ---

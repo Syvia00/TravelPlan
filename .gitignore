@@ -19,6 +19,7 @@ artifacts/
 # VS Code
 .vscode/
 .claude/
+.secret/
 
 # User-specific / local-only files
 *.rsuser
@@ -29,6 +30,9 @@ artifacts/
 **/secrets.json
 **/appsettings.*.local.json
 **/appsettings.Local.json
+
+# Google Cloud OAuth client secret downloads (Entra External ID's Google identity provider setup)
+client_secret_*.apps.googleusercontent.com.json
 
 # Test results
 [Tt]est[Rr]esult*/
