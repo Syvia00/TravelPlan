@@ -482,7 +482,7 @@ namespace TravelPlan.Api.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ExternalAuthId")
-                        .HasMaxLength(36)
+                        .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PhoneNumber")

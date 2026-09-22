@@ -13,7 +13,7 @@ erDiagram
 
     Users {
         int         Id                PK
-        nvarchar36  ExternalAuthId    UK "Microsoft Entra External ID object ID; nullable for phone-only accounts"
+        nvarchar255 ExternalAuthId    UK "Entra External ID subject/object identifier; nullable for phone-only accounts. 255 not 36: falls back to the 'sub' claim (opaque, not a GUID) when 'oid' is absent"
         nvarchar256 Email             UK "nullable for phone-only accounts"
         nvarchar20  PhoneNumber       UK "nullable, E.164 format"
         datetime2   PhoneVerifiedAt   "nullable"
