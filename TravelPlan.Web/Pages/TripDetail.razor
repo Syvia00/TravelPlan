@@ -1,0 +1,43 @@
+@page "/trips/{TripId:int}"
+
+@* No [Authorize] attribute — App.razor gates every route uniformly via a global AuthorizeView,
+   not per-page attributes (see its NotAuthorized branch). *@
+
+@inject TripsApiClient TripsApi
+
+<div class="page cool" style="flex:1 1 100%;">
+    <a class="settings-icon" href="/" title="Back to your book">←</a>
+
+    @if (_trip is null)
+    {
+        <p class="empty-day">Loading…</p>
+    }
+    else
+    {
+        <p class="eyebrow">TRIP</p>
+        <h1 class="cal-title" style="margin-bottom:4px;">@_trip.Title</h1>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 16px;">
+            @_trip.StartDate.ToString("MMM d") – @_trip.EndDate.ToString("MMM d, yyyy")
+            · @(_trip.IsOwner ? "Owner" : _trip.Role?.ToString() ?? "Viewer")
+        </p>
+
+        <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;margin-bottom:20px;" href="@($"/trips/{TripId}/report")">
+            View itinerary report →
+        </a>
+
+        <ShareTripPanel TripId="TripId" IsOwner="_trip.IsOwner" />
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int TripId { get; set; }
+
+    private TripDto? _trip;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _trip = null;
+        _trip = await TripsApi.GetAsync(TripId);
+    }
+}

@@ -15,8 +15,4 @@ public class PlanItemRepository : Repository<PlanItem>, IPlanItemRepository
             .OrderBy(p => p.Date)
             .ThenBy(p => p.SortOrder)
             .ToListAsync(cancellationToken);
-
-    public Task<PlanItem?> GetByIdForUserAsync(int id, int userId, CancellationToken cancellationToken = default) =>
-        DbSet.Where(p => p.Id == id && p.Trip!.UserId == userId)
-            .SingleOrDefaultAsync(cancellationToken);
 }

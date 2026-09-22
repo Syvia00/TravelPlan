@@ -14,8 +14,4 @@ public class TravelLegRepository : Repository<TravelLeg>, ITravelLegRepository
         DbSet.Where(l => l.TripId == tripId)
             .OrderBy(l => l.DepartureTime)
             .ToListAsync(cancellationToken);
-
-    public Task<TravelLeg?> GetByIdForUserAsync(int id, int userId, CancellationToken cancellationToken = default) =>
-        DbSet.Where(l => l.Id == id && l.Trip!.UserId == userId)
-            .SingleOrDefaultAsync(cancellationToken);
 }

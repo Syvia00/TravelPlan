@@ -17,6 +17,7 @@ public class TripsController : ControllerBase
 {
     private readonly ITripRepository _trips;
     private readonly ICurrentUserService _currentUser;
+    private readonly ITripAccessService _tripAccess;
     private readonly ITripCompletionService _completionService;
     private readonly ITripReportService _reportService;
     private readonly IValidator<CreateTripDto> _createValidator;
@@ -25,6 +26,7 @@ public class TripsController : ControllerBase
     public TripsController(
         ITripRepository trips,
         ICurrentUserService currentUser,
+        ITripAccessService tripAccess,
         ITripCompletionService completionService,
         ITripReportService reportService,
         IValidator<CreateTripDto> createValidator,
@@ -32,6 +34,7 @@ public class TripsController : ControllerBase
     {
         _trips = trips;
         _currentUser = currentUser;
+        _tripAccess = tripAccess;
         _completionService = completionService;
         _reportService = reportService;
         _createValidator = createValidator;
@@ -41,25 +44,28 @@ public class TripsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TripDto>>> List(CancellationToken cancellationToken)
     {
+        // "My trips" only makes sense for a real account — not a share-link visitor, who has no
+        // list of trips, just access to the one their link points at.
         if (_currentUser.UserId is not { } userId)
         {
             return Unauthorized();
         }
 
         var trips = await _trips.ListByUserIdAsync(userId, cancellationToken);
-        return Ok(trips.Select(ToDto));
+        return Ok(trips.Select(t => ToDto(t, userId)));
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<TripDto>> GetById(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
+        var access = await _tripAccess.GetAccessInfoAsync(id, cancellationToken);
+        if (access is null)
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var trip = await _trips.GetByIdForUserAsync(id, userId, cancellationToken);
-        return trip is null ? NotFound() : Ok(ToDto(trip));
+        var trip = await _trips.GetByIdAsync(id, cancellationToken);
+        return trip is null ? NotFound() : Ok(ToDto(trip, access.Value));
     }
 
     [HttpPost]
@@ -94,24 +100,24 @@ public class TripsController : ControllerBase
         await _trips.AddAsync(trip, cancellationToken);
         await _trips.SaveChangesAsync(cancellationToken);
 
-        return CreatedAtAction(nameof(GetById), new { id = trip.Id }, ToDto(trip));
+        return CreatedAtAction(nameof(GetById), new { id = trip.Id }, ToDto(trip, new TripAccessInfo(true, null)));
     }
 
     [HttpPut("{id:int}")]
     public async Task<ActionResult<TripDto>> Update(int id, UpdateTripDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _updateValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
             return ValidationProblemFor(validation);
         }
 
-        var trip = await _trips.GetByIdForUserAsync(id, userId, cancellationToken);
+        if (!await _tripAccess.HasAccessAsync(id, TripRole.Editor, cancellationToken))
+        {
+            return NotFound();
+        }
+
+        var trip = await _trips.GetByIdAsync(id, cancellationToken);
         if (trip is null)
         {
             return NotFound();
@@ -140,30 +146,34 @@ public class TripsController : ControllerBase
                 trip, TripMemoryReportType.MemorySummary, null, null, cancellationToken);
         }
 
-        return Ok(ToDto(trip));
+        var access = await _tripAccess.GetAccessInfoAsync(id, cancellationToken);
+        return Ok(ToDto(trip, access ?? new TripAccessInfo(false, null)));
     }
 
     [HttpPost("{id:int}/complete")]
     public async Task<ActionResult<TripDto>> Complete(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
+        var trip = await _completionService.CompleteTripAsync(id, cancellationToken);
+        if (trip is null)
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var trip = await _completionService.CompleteTripAsync(id, userId, cancellationToken);
-        return trip is null ? NotFound() : Ok(ToDto(trip));
+        var access = await _tripAccess.GetAccessInfoAsync(id, cancellationToken);
+        return Ok(ToDto(trip, access ?? new TripAccessInfo(false, null)));
     }
 
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
+        // Deleting the whole trip is owner-only — even an Editor collaborator must not be able
+        // to do this (see ITripAccessService.IsOwnerAsync).
+        if (!await _tripAccess.IsOwnerAsync(id, cancellationToken))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var trip = await _trips.GetByIdForUserAsync(id, userId, cancellationToken);
+        var trip = await _trips.GetByIdAsync(id, cancellationToken);
         if (trip is null)
         {
             return NotFound();
@@ -185,7 +195,7 @@ public class TripsController : ControllerBase
         return ValidationProblem(ModelState);
     }
 
-    private static TripDto ToDto(Trip t) => new(
+    private static TripDto ToDto(Trip t, TripAccessInfo access) => new(
         t.Id,
         t.Title,
         t.Description,
@@ -195,5 +205,19 @@ public class TripsController : ControllerBase
         t.Currency,
         t.TotalBudget,
         t.CreatedAt,
-        t.UpdatedAt);
+        t.UpdatedAt,
+        access.IsOwner,
+        access.Role);
+
+    /// <summary>
+    /// For the bulk List response, where TripRepository.ListByUserIdAsync already eager-loads
+    /// each trip's Collaborators filtered to just this user's own row (if any) — avoids an
+    /// ITripAccessService round trip per trip.
+    /// </summary>
+    private static TripDto ToDto(Trip t, int userId)
+    {
+        var isOwner = t.UserId == userId;
+        var role = isOwner ? null : t.Collaborators.FirstOrDefault(c => c.UserId == userId)?.Role;
+        return ToDto(t, new TripAccessInfo(isOwner, role));
+    }
 }

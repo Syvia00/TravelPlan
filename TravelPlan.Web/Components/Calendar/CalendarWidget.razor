@@ -48,7 +48,7 @@ else
         {
             @foreach (var trip in tripsInView)
             {
-                <a class="trip-tag" href="@($"/trips/{trip.Id}/report")" title="View report"><span class="dot"></span>@trip.Title — @FormatRange(trip)</a>
+                <a class="trip-tag" href="@($"/trips/{trip.Id}")" title="View trip"><span class="dot"></span>@trip.Title — @FormatRange(trip)</a>
             }
         }
     </div>

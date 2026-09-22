@@ -18,8 +18,7 @@ namespace TravelPlan.Api.Controllers;
 public class TripMemoriesController : ControllerBase
 {
     private readonly ITripMemoryRepository _tripMemories;
-    private readonly ITripRepository _trips;
-    private readonly ICurrentUserService _currentUser;
+    private readonly ITripAccessService _tripAccess;
     private readonly ITripReportService _reportService;
     private readonly IReportHtmlRenderer _htmlRenderer;
     private readonly IValidator<CreateTripMemoryDto> _createValidator;
@@ -27,16 +26,14 @@ public class TripMemoriesController : ControllerBase
 
     public TripMemoriesController(
         ITripMemoryRepository tripMemories,
-        ITripRepository trips,
-        ICurrentUserService currentUser,
+        ITripAccessService tripAccess,
         ITripReportService reportService,
         IReportHtmlRenderer htmlRenderer,
         IValidator<CreateTripMemoryDto> createValidator,
         IValidator<UpdateTripMemoryReflectionDto> reflectionValidator)
     {
         _tripMemories = tripMemories;
-        _trips = trips;
-        _currentUser = currentUser;
+        _tripAccess = tripAccess;
         _reportService = reportService;
         _htmlRenderer = htmlRenderer;
         _createValidator = createValidator;
@@ -46,13 +43,7 @@ public class TripMemoriesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TripMemoryDto>>> List([FromQuery] int tripId, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
-        var trip = await _trips.GetByIdForUserAsync(tripId, userId, cancellationToken);
-        if (trip is null)
+        if (!await _tripAccess.HasAccessAsync(tripId, TripRole.Viewer, cancellationToken))
         {
             return NotFound();
         }
@@ -64,23 +55,18 @@ public class TripMemoriesController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<TripMemoryDto>> GetById(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
+        var memory = await _tripMemories.GetByIdAsync(id, cancellationToken);
+        if (memory is null || !await _tripAccess.HasAccessAsync(memory.TripId, TripRole.Viewer, cancellationToken))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var memory = await _tripMemories.GetByIdForUserAsync(id, userId, cancellationToken);
-        return memory is null ? NotFound() : Ok(ToDto(memory));
+        return Ok(ToDto(memory));
     }
 
     [HttpPost]
     public async Task<ActionResult<TripMemoryDto>> Create(CreateTripMemoryDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _createValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
@@ -95,7 +81,7 @@ public class TripMemoriesController : ControllerBase
         try
         {
             memory = await _reportService.GenerateReportAsync(
-                dto.TripId, userId, dto.ReportType, dto.Title, dto.Description, cancellationToken);
+                dto.TripId, dto.ReportType, dto.Title, dto.Description, cancellationToken);
         }
         catch (InvalidOperationException ex)
         {
@@ -104,7 +90,7 @@ public class TripMemoriesController : ControllerBase
 
         if (memory is null)
         {
-            ModelState.AddModelError(nameof(dto.TripId), "TripId does not refer to a trip you own.");
+            ModelState.AddModelError(nameof(dto.TripId), "TripId does not refer to a trip you have edit access to.");
             return ValidationProblem(ModelState);
         }
 
@@ -114,11 +100,6 @@ public class TripMemoriesController : ControllerBase
     [HttpPut("{id:int}/reflection")]
     public async Task<ActionResult<TripMemoryDto>> UpdateReflection(int id, UpdateTripMemoryReflectionDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _reflectionValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
@@ -129,8 +110,8 @@ public class TripMemoriesController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var memory = await _tripMemories.GetByIdForUserAsync(id, userId, cancellationToken);
-        if (memory is null)
+        var memory = await _tripMemories.GetByIdAsync(id, cancellationToken);
+        if (memory is null || !await _tripAccess.HasAccessAsync(memory.TripId, TripRole.Editor, cancellationToken))
         {
             return NotFound();
         }
@@ -152,7 +133,7 @@ public class TripMemoriesController : ControllerBase
     [HttpGet("{id:int}/png")]
     public async Task<IActionResult> GetPng(int id, CancellationToken cancellationToken)
     {
-        var lookup = await LoadReportForUserAsync(id, cancellationToken);
+        var lookup = await LoadReportAsync(id, cancellationToken);
         if (lookup.NotFound)
         {
             return NotFound();
@@ -165,7 +146,7 @@ public class TripMemoriesController : ControllerBase
     [HttpGet("{id:int}/pdf")]
     public async Task<IActionResult> GetPdf(int id, CancellationToken cancellationToken)
     {
-        var lookup = await LoadReportForUserAsync(id, cancellationToken);
+        var lookup = await LoadReportAsync(id, cancellationToken);
         if (lookup.NotFound)
         {
             return NotFound();
@@ -178,7 +159,7 @@ public class TripMemoriesController : ControllerBase
     [HttpGet("{id:int}/html")]
     public async Task<IActionResult> GetHtml(int id, CancellationToken cancellationToken)
     {
-        var lookup = await LoadReportForUserAsync(id, cancellationToken);
+        var lookup = await LoadReportAsync(id, cancellationToken);
         if (lookup.NotFound)
         {
             return NotFound();
@@ -190,15 +171,10 @@ public class TripMemoriesController : ControllerBase
 
     private readonly record struct ReportLookupResult(TripMemory? Memory, TripReportDto? Report, bool NotFound);
 
-    private async Task<ReportLookupResult> LoadReportForUserAsync(int id, CancellationToken cancellationToken)
+    private async Task<ReportLookupResult> LoadReportAsync(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return new ReportLookupResult(null, null, true);
-        }
-
-        var memory = await _tripMemories.GetByIdForUserAsync(id, userId, cancellationToken);
-        if (memory is null)
+        var memory = await _tripMemories.GetByIdAsync(id, cancellationToken);
+        if (memory is null || !await _tripAccess.HasAccessAsync(memory.TripId, TripRole.Viewer, cancellationToken))
         {
             return new ReportLookupResult(null, null, true);
         }

@@ -12,5 +12,7 @@ public record TripDto(
     string? Currency,
     decimal? TotalBudget,
     DateTime CreatedAt,
-    DateTime UpdatedAt
+    DateTime UpdatedAt,
+    bool IsOwner,
+    TripRole? Role
 );

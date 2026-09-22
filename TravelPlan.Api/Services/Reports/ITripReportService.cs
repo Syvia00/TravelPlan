@@ -6,14 +6,14 @@ namespace TravelPlan.Api.Services.Reports;
 public interface ITripReportService
 {
     /// <summary>
-    /// Builds report data for a trip (ownership-checked) and persists it as a new TripMemory
-    /// row. Returns null if the trip doesn't exist or isn't owned by the user. Throws
-    /// InvalidOperationException for ReportType.MemorySummary when the trip isn't Completed yet
-    /// — per erd.md, a memory summary is only ever generated on trip completion.
+    /// Builds report data for a trip (access-checked via ITripAccessService, requires Editor) and
+    /// persists it as a new TripMemory row. Returns null if the trip doesn't exist or the current
+    /// request lacks Editor access. Throws InvalidOperationException for ReportType.MemorySummary
+    /// when the trip isn't Completed yet — per erd.md, a memory summary is only ever generated on
+    /// trip completion.
     /// </summary>
     Task<TripMemory?> GenerateReportAsync(
         int tripId,
-        int userId,
         TripMemoryReportType reportType,
         string? title,
         string? description,

@@ -14,8 +14,4 @@ public class TripMemoryRepository : Repository<TripMemory>, ITripMemoryRepositor
         DbSet.Where(m => m.TripId == tripId)
             .OrderByDescending(m => m.CreatedAt)
             .ToListAsync(cancellationToken);
-
-    public Task<TripMemory?> GetByIdForUserAsync(int id, int userId, CancellationToken cancellationToken = default) =>
-        DbSet.Where(m => m.Id == id && m.Trip!.UserId == userId)
-            .SingleOrDefaultAsync(cancellationToken);
 }

@@ -14,8 +14,4 @@ public class BudgetItemRepository : Repository<BudgetItem>, IBudgetItemRepositor
         DbSet.Where(b => b.TripId == tripId)
             .OrderBy(b => b.Date)
             .ToListAsync(cancellationToken);
-
-    public Task<BudgetItem?> GetByIdForUserAsync(int id, int userId, CancellationToken cancellationToken = default) =>
-        DbSet.Where(b => b.Id == id && b.Trip!.UserId == userId)
-            .SingleOrDefaultAsync(cancellationToken);
 }

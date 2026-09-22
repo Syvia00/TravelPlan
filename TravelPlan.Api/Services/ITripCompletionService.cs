@@ -7,9 +7,10 @@ public interface ITripCompletionService
     /// <summary>
     /// Marks a trip Completed and generates its MemorySummary report. Idempotent — if the trip
     /// is already Completed, no new report is generated (erd.md: a memory summary is only ever
-    /// generated once). Returns null if the trip doesn't exist or isn't owned by the user.
+    /// generated once). Returns null if the trip doesn't exist or the current request (owner,
+    /// Editor collaborator, or Editor share-link — see ITripAccessService) lacks Editor access.
     /// </summary>
-    Task<Trip?> CompleteTripAsync(int tripId, int userId, CancellationToken cancellationToken = default);
+    Task<Trip?> CompleteTripAsync(int tripId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Sweeps every trip (any user) whose EndDate has passed and isn't already Completed or

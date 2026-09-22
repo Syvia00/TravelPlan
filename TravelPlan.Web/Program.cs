@@ -39,5 +39,7 @@ builder.Services.AddScoped<BudgetItemsApiClient>();
 builder.Services.AddScoped<AccommodationsApiClient>();
 builder.Services.AddScoped<TravelLegsApiClient>();
 builder.Services.AddScoped<TripMemoriesApiClient>();
+builder.Services.AddScoped<TripCollaboratorsApiClient>();
+builder.Services.AddScoped<TripShareLinksApiClient>();
 
 await builder.Build().RunAsync();

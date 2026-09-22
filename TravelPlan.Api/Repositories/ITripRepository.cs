@@ -4,9 +4,8 @@ namespace TravelPlan.Api.Repositories;
 
 public interface ITripRepository : IRepository<Trip>
 {
+    /// <summary>Trips the user owns, plus trips they're an accepted collaborator on (any role).</summary>
     Task<List<Trip>> ListByUserIdAsync(int userId, CancellationToken cancellationToken = default);
-
-    Task<Trip?> GetByIdForUserAsync(int id, int userId, CancellationToken cancellationToken = default);
 
     /// <summary>Trips (any user) whose EndDate has passed and aren't already Completed or
     /// Cancelled — used by the auto-completion background sweep.</summary>

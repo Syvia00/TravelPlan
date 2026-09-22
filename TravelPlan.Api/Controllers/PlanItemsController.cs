@@ -6,6 +6,7 @@ using TravelPlan.Api.Repositories;
 using TravelPlan.Api.Services;
 using TravelPlan.Shared.DTOs.PlanItems;
 using TravelPlan.Shared.Models;
+using TravelPlan.Shared.Models.Enums;
 
 namespace TravelPlan.Api.Controllers;
 
@@ -15,21 +16,18 @@ namespace TravelPlan.Api.Controllers;
 public class PlanItemsController : ControllerBase
 {
     private readonly IPlanItemRepository _planItems;
-    private readonly ITripRepository _trips;
-    private readonly ICurrentUserService _currentUser;
+    private readonly ITripAccessService _tripAccess;
     private readonly IValidator<CreatePlanItemDto> _createValidator;
     private readonly IValidator<UpdatePlanItemDto> _updateValidator;
 
     public PlanItemsController(
         IPlanItemRepository planItems,
-        ITripRepository trips,
-        ICurrentUserService currentUser,
+        ITripAccessService tripAccess,
         IValidator<CreatePlanItemDto> createValidator,
         IValidator<UpdatePlanItemDto> updateValidator)
     {
         _planItems = planItems;
-        _trips = trips;
-        _currentUser = currentUser;
+        _tripAccess = tripAccess;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
     }
@@ -37,13 +35,7 @@ public class PlanItemsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<PlanItemDto>>> List([FromQuery] int tripId, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
-        var trip = await _trips.GetByIdForUserAsync(tripId, userId, cancellationToken);
-        if (trip is null)
+        if (!await _tripAccess.HasAccessAsync(tripId, TripRole.Viewer, cancellationToken))
         {
             return NotFound();
         }
@@ -55,33 +47,27 @@ public class PlanItemsController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<PlanItemDto>> GetById(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
+        var item = await _planItems.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Viewer, cancellationToken))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var item = await _planItems.GetByIdForUserAsync(id, userId, cancellationToken);
-        return item is null ? NotFound() : Ok(ToDto(item));
+        return Ok(ToDto(item));
     }
 
     [HttpPost]
     public async Task<ActionResult<PlanItemDto>> Create(CreatePlanItemDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _createValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
             return ValidationProblemFor(validation);
         }
 
-        var trip = await _trips.GetByIdForUserAsync(dto.TripId, userId, cancellationToken);
-        if (trip is null)
+        if (!await _tripAccess.HasAccessAsync(dto.TripId, TripRole.Editor, cancellationToken))
         {
-            ModelState.AddModelError(nameof(dto.TripId), "TripId does not refer to a trip you own.");
+            ModelState.AddModelError(nameof(dto.TripId), "TripId does not refer to a trip you have edit access to.");
             return ValidationProblem(ModelState);
         }
 
@@ -115,19 +101,14 @@ public class PlanItemsController : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<ActionResult<PlanItemDto>> Update(int id, UpdatePlanItemDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _updateValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
             return ValidationProblemFor(validation);
         }
 
-        var item = await _planItems.GetByIdForUserAsync(id, userId, cancellationToken);
-        if (item is null)
+        var item = await _planItems.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Editor, cancellationToken))
         {
             return NotFound();
         }
@@ -157,13 +138,8 @@ public class PlanItemsController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
-        var item = await _planItems.GetByIdForUserAsync(id, userId, cancellationToken);
-        if (item is null)
+        var item = await _planItems.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Editor, cancellationToken))
         {
             return NotFound();
         }

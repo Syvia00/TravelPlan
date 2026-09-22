@@ -1,0 +1,224 @@
+@* Invite-by-email, generate/copy an anonymous share link, and list current collaborators — the
+   management side of sharing (TravelPlan-Project-Plan-v2.md section 2 "Companions & sharing").
+   Only the trip owner sees the invite/generate/revoke controls; a collaborator (Editor or
+   Viewer) sees the read-only list, matching the API's owner-only gate on those actions.
+   Consuming a share link (the anonymous visitor's side) isn't built yet — the API already
+   accepts a valid share-link token as an alternative to sign-in for the trip it points at, but
+   there's no anonymous-visitor page to land on yet; that's a future session's Web work. *@
+
+@inject TripCollaboratorsApiClient CollaboratorsApi
+@inject TripShareLinksApiClient ShareLinksApi
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<div class="card">
+    <h3 class="modal-title" style="margin-bottom:10px;">Collaborators</h3>
+
+    @if (IsOwner)
+    {
+        <EditForm Model="_inviteModel" OnValidSubmit="InviteAsync">
+            <div class="form-row">
+                <label for="invite-email">Invite by email</label>
+                <input id="invite-email" type="email" required @bind="_inviteModel.Email" />
+            </div>
+            <div class="form-row">
+                <label for="invite-role">Role</label>
+                <select id="invite-role" @bind="_inviteModel.Role">
+                    <option value="@TripRole.Viewer">Viewer — can see the trip</option>
+                    <option value="@TripRole.Editor">Editor — can also make changes</option>
+                </select>
+            </div>
+
+            @if (_inviteErrors.Count > 0)
+            {
+                <ul class="form-errors">
+                    @foreach (var err in _inviteErrors)
+                    {
+                        <li>@err</li>
+                    }
+                </ul>
+            }
+
+            <button type="submit" class="btn primary" disabled="@_inviting">@(_inviting ? "Inviting…" : "Send invite")</button>
+        </EditForm>
+    }
+
+    @if (_collaborators is null)
+    {
+        <p class="empty-day">Loading…</p>
+    }
+    else if (_collaborators.Count == 0)
+    {
+        <p class="empty-day">No collaborators yet.</p>
+    }
+    else
+    {
+        <div class="day-timeline" style="margin-top:12px;">
+            @foreach (var c in _collaborators)
+            {
+                <div class="timeline-item">
+                    <div style="flex:1;">
+                        <div class="timeline-title">@(string.IsNullOrWhiteSpace(c.UserDisplayName) ? c.UserEmail : c.UserDisplayName)</div>
+                        <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                            @c.Role @(c.AcceptedAt is null ? "· Pending" : "")
+                        </div>
+                    </div>
+                    @if (IsOwner)
+                    {
+                        <button type="button" class="modal-close" title="Revoke access" @onclick="() => RevokeCollaboratorAsync(c.Id)">🗙</button>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (IsOwner)
+{
+    <div class="card">
+        <h3 class="modal-title" style="margin-bottom:10px;">Share links</h3>
+
+        <div class="form-row" style="flex-direction:row;align-items:center;gap:8px;">
+            <select @bind="_newLinkRole" style="flex:1;">
+                <option value="@TripRole.Viewer">Viewer link</option>
+                <option value="@TripRole.Editor">Editor link</option>
+            </select>
+            <button type="button" class="btn primary" style="width:auto;padding:10px 16px;" disabled="@_generating" @onclick="GenerateLinkAsync">
+                @(_generating ? "Generating…" : "+ Generate link")
+            </button>
+        </div>
+
+        @if (_linkError is not null)
+        {
+            <ul class="form-errors">
+                <li>@_linkError</li>
+            </ul>
+        }
+
+        @if (_shareLinks is { Count: > 0 })
+        {
+            <div class="day-timeline" style="margin-top:12px;">
+                @foreach (var link in _shareLinks)
+                {
+                    <div class="timeline-item">
+                        <div style="flex:1;">
+                            <div class="timeline-title">@link.Role link</div>
+                            <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                @(link.ExpiresAt is { } exp ? $"Expires {exp:MMM d, yyyy}" : "Never expires")
+                                @(_copiedLinkId == link.Id ? " · Copied!" : "")
+                            </div>
+                        </div>
+                        <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => CopyLinkAsync(link.Id, link.Token)">Copy</button>
+                        <button type="button" class="modal-close" title="Revoke link" @onclick="() => RevokeLinkAsync(link.Id)">🗙</button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public int TripId { get; set; }
+
+    [Parameter]
+    public bool IsOwner { get; set; }
+
+    private List<TripCollaboratorDto>? _collaborators;
+    private List<TripShareLinkDto>? _shareLinks;
+
+    private readonly InviteModel _inviteModel = new();
+    private List<string> _inviteErrors = new();
+    private bool _inviting;
+
+    private TripRole _newLinkRole = TripRole.Viewer;
+    private bool _generating;
+    private string? _linkError;
+    private int? _copiedLinkId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await ReloadCollaboratorsAsync();
+        if (IsOwner)
+        {
+            await ReloadShareLinksAsync();
+        }
+    }
+
+    private async Task ReloadCollaboratorsAsync()
+    {
+        _collaborators = await CollaboratorsApi.ListAsync(TripId);
+    }
+
+    private async Task ReloadShareLinksAsync()
+    {
+        _shareLinks = await ShareLinksApi.ListAsync(TripId);
+    }
+
+    private async Task InviteAsync()
+    {
+        _inviting = true;
+        _inviteErrors.Clear();
+        try
+        {
+            await CollaboratorsApi.InviteAsync(new CreateTripCollaboratorDto(TripId, _inviteModel.Email, _inviteModel.Role));
+            _inviteModel.Email = string.Empty;
+            await ReloadCollaboratorsAsync();
+        }
+        catch (ApiException ex)
+        {
+            _inviteErrors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _inviting = false;
+        }
+    }
+
+    private async Task RevokeCollaboratorAsync(int id)
+    {
+        await CollaboratorsApi.RevokeAsync(id);
+        await ReloadCollaboratorsAsync();
+    }
+
+    private async Task GenerateLinkAsync()
+    {
+        _generating = true;
+        _linkError = null;
+        try
+        {
+            await ShareLinksApi.CreateAsync(new CreateTripShareLinkDto(TripId, _newLinkRole, null));
+            await ReloadShareLinksAsync();
+        }
+        catch (ApiException ex)
+        {
+            _linkError = ex.Message;
+        }
+        finally
+        {
+            _generating = false;
+        }
+    }
+
+    private async Task RevokeLinkAsync(int id)
+    {
+        await ShareLinksApi.RevokeAsync(id);
+        await ReloadShareLinksAsync();
+    }
+
+    private async Task CopyLinkAsync(int linkId, string token)
+    {
+        var url = $"{Navigation.BaseUri}shared/{token}";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+        _copiedLinkId = linkId;
+        StateHasChanged();
+    }
+
+    private class InviteModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public TripRole Role { get; set; } = TripRole.Viewer;
+    }
+}

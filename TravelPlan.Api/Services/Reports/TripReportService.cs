@@ -9,6 +9,7 @@ namespace TravelPlan.Api.Services.Reports;
 public class TripReportService : ITripReportService
 {
     private readonly ITripRepository _trips;
+    private readonly ITripAccessService _tripAccess;
     private readonly IDestinationRepository _destinations;
     private readonly IPlanItemRepository _planItems;
     private readonly IAccommodationRepository _accommodations;
@@ -18,6 +19,7 @@ public class TripReportService : ITripReportService
 
     public TripReportService(
         ITripRepository trips,
+        ITripAccessService tripAccess,
         IDestinationRepository destinations,
         IPlanItemRepository planItems,
         IAccommodationRepository accommodations,
@@ -26,6 +28,7 @@ public class TripReportService : ITripReportService
         ITripMemoryRepository tripMemories)
     {
         _trips = trips;
+        _tripAccess = tripAccess;
         _destinations = destinations;
         _planItems = planItems;
         _accommodations = accommodations;
@@ -36,13 +39,17 @@ public class TripReportService : ITripReportService
 
     public async Task<TripMemory?> GenerateReportAsync(
         int tripId,
-        int userId,
         TripMemoryReportType reportType,
         string? title,
         string? description,
         CancellationToken cancellationToken = default)
     {
-        var trip = await _trips.GetByIdForUserAsync(tripId, userId, cancellationToken);
+        if (!await _tripAccess.HasAccessAsync(tripId, TripRole.Editor, cancellationToken))
+        {
+            return null;
+        }
+
+        var trip = await _trips.GetByIdAsync(tripId, cancellationToken);
         if (trip is null)
         {
             return null;

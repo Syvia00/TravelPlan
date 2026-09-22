@@ -8,19 +8,30 @@ namespace TravelPlan.Api.Services;
 public class TripCompletionService : ITripCompletionService
 {
     private readonly ITripRepository _trips;
+    private readonly ITripAccessService _tripAccess;
     private readonly ITripReportService _reportService;
     private readonly ILogger<TripCompletionService> _logger;
 
-    public TripCompletionService(ITripRepository trips, ITripReportService reportService, ILogger<TripCompletionService> logger)
+    public TripCompletionService(
+        ITripRepository trips,
+        ITripAccessService tripAccess,
+        ITripReportService reportService,
+        ILogger<TripCompletionService> logger)
     {
         _trips = trips;
+        _tripAccess = tripAccess;
         _reportService = reportService;
         _logger = logger;
     }
 
-    public async Task<Trip?> CompleteTripAsync(int tripId, int userId, CancellationToken cancellationToken = default)
+    public async Task<Trip?> CompleteTripAsync(int tripId, CancellationToken cancellationToken = default)
     {
-        var trip = await _trips.GetByIdForUserAsync(tripId, userId, cancellationToken);
+        if (!await _tripAccess.HasAccessAsync(tripId, TripRole.Editor, cancellationToken))
+        {
+            return null;
+        }
+
+        var trip = await _trips.GetByIdAsync(tripId, cancellationToken);
         if (trip is null)
         {
             return null;

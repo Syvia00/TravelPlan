@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using FluentValidation;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
+using TravelPlan.Api.Auth;
 using TravelPlan.Api.Data;
 using TravelPlan.Api.Middleware;
 using TravelPlan.Api.Repositories;
@@ -54,10 +56,27 @@ if (builder.Environment.IsDevelopment())
             .AllowAnyMethod()));
 }
 
-// Auth — Entra External ID (CIAM), JWT bearer validation. Phone OTP (Azure Communication
-// Services) is deliberately deferred — see deployment-runbook.md section 5.
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+// Auth — Entra External ID (CIAM) JWT bearer validation, or an anonymous share-link token (an
+// "X-Share-Token" header) as an alternative for a trip's Viewer/Editor share link — see
+// ShareLinkAuthHandler. Phone OTP (Azure Communication Services) is deliberately deferred — see
+// deployment-runbook.md section 5.
+//
+// "SmartAuth" is a policy scheme, not a handler: it picks which real scheme authenticates the
+// request based on whether the share-token header is present, so every existing [Authorize]
+// (no scheme specified) keeps working unchanged and transparently accepts either.
+const string SmartAuthScheme = "SmartAuth";
+var authBuilder = builder.Services.AddAuthentication(SmartAuthScheme)
+    .AddPolicyScheme(SmartAuthScheme, "JWT or share link", options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.ContainsKey(ShareLinkAuthHandler.HeaderName)
+                ? ShareLinkAuthHandler.SchemeName
+                : JwtBearerDefaults.AuthenticationScheme;
+    });
+// AddMicrosoftIdentityWebApi returns a specialized builder that doesn't chain .AddScheme, so
+// register it off the original AuthenticationBuilder instead of chaining further.
+authBuilder.AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+authBuilder.AddScheme<AuthenticationSchemeOptions, ShareLinkAuthHandler>(ShareLinkAuthHandler.SchemeName, options => { });
 
 // External ID's v2.0 tokens carry claims under their raw JWT names ("oid"/"email"/"name"), not
 // the ClaimTypes.* URIs UserSyncMiddleware reads — normalize them once here so that middleware
@@ -110,9 +129,16 @@ builder.Services.AddScoped<IAccommodationRepository, AccommodationRepository>();
 builder.Services.AddScoped<ITravelLegRepository, TravelLegRepository>();
 builder.Services.AddScoped<IDestinationRepository, DestinationRepository>();
 builder.Services.AddScoped<ITripMemoryRepository, TripMemoryRepository>();
+builder.Services.AddScoped<ITripCollaboratorRepository, TripCollaboratorRepository>();
+builder.Services.AddScoped<ITripShareLinkRepository, TripShareLinkRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 // Current-user context, populated per-request by UserSyncMiddleware
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+// The single access-check authority every controller uses instead of an ad hoc ownership
+// query — see ITripAccessService.
+builder.Services.AddScoped<ITripAccessService, TripAccessService>();
 
 // Reports — SkiaSharp draws once (PNG + PDF from the same recorded picture); the Razor
 // component renders the same ReportData as HTML via HtmlRenderer, no Blazor hosting needed.

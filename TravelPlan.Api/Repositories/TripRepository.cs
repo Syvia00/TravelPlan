@@ -12,12 +12,12 @@ public class TripRepository : Repository<Trip>, ITripRepository
     }
 
     public Task<List<Trip>> ListByUserIdAsync(int userId, CancellationToken cancellationToken = default) =>
-        DbSet.Where(t => t.UserId == userId)
+        DbSet.Where(t => t.UserId == userId || t.Collaborators.Any(c => c.UserId == userId && c.AcceptedAt != null))
+            // Filtered Include: at most one row per trip (this user's own collaborator row, if
+            // any) — lets the controller read the caller's role without a query per trip.
+            .Include(t => t.Collaborators.Where(c => c.UserId == userId && c.AcceptedAt != null))
             .OrderByDescending(t => t.StartDate)
             .ToListAsync(cancellationToken);
-
-    public Task<Trip?> GetByIdForUserAsync(int id, int userId, CancellationToken cancellationToken = default) =>
-        DbSet.SingleOrDefaultAsync(t => t.Id == id && t.UserId == userId, cancellationToken);
 
     public Task<List<Trip>> ListDueForCompletionAsync(DateOnly asOf, CancellationToken cancellationToken = default) =>
         DbSet.Where(t => t.EndDate < asOf && t.Status != TripStatus.Completed && t.Status != TripStatus.Cancelled)

@@ -374,9 +374,10 @@ namespace TravelPlan.Api.Migrations.Sqlite
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TripId");
-
                     b.HasIndex("UserId");
+
+                    b.HasIndex("TripId", "UserId")
+                        .IsUnique();
 
                     b.ToTable("TripCollaborators");
                 });

@@ -11,6 +11,11 @@ public class TripCollaboratorConfiguration : IEntityTypeConfiguration<TripCollab
         builder.Property(c => c.Role).HasConversion<string>().HasMaxLength(10);
         builder.Property(c => c.InvitedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+        // One invite per (trip, user) — TripCollaboratorsController.Create checks this
+        // explicitly before insert (for a clean validation error instead of a raw DbUpdateException),
+        // but the index is the actual integrity guarantee under concurrent invites.
+        builder.HasIndex(c => new { c.TripId, c.UserId }).IsUnique();
+
         // Users -> Trips and Trips -> TripCollaborators are both Cascade, so a direct Cascade
         // from Users -> TripCollaborators too would create two cascade paths to the same table.
         // SQLite doesn't enforce this (why this built clean in Session 2), but SQL Server

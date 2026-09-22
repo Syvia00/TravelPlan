@@ -5,6 +5,7 @@ using TravelPlan.Api.Repositories;
 using TravelPlan.Api.Services;
 using TravelPlan.Shared.DTOs.BudgetItems;
 using TravelPlan.Shared.Models;
+using TravelPlan.Shared.Models.Enums;
 
 namespace TravelPlan.Api.Controllers;
 
@@ -14,21 +15,18 @@ namespace TravelPlan.Api.Controllers;
 public class BudgetItemsController : ControllerBase
 {
     private readonly IBudgetItemRepository _budgetItems;
-    private readonly ITripRepository _trips;
-    private readonly ICurrentUserService _currentUser;
+    private readonly ITripAccessService _tripAccess;
     private readonly IValidator<CreateBudgetItemDto> _createValidator;
     private readonly IValidator<UpdateBudgetItemDto> _updateValidator;
 
     public BudgetItemsController(
         IBudgetItemRepository budgetItems,
-        ITripRepository trips,
-        ICurrentUserService currentUser,
+        ITripAccessService tripAccess,
         IValidator<CreateBudgetItemDto> createValidator,
         IValidator<UpdateBudgetItemDto> updateValidator)
     {
         _budgetItems = budgetItems;
-        _trips = trips;
-        _currentUser = currentUser;
+        _tripAccess = tripAccess;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
     }
@@ -36,13 +34,7 @@ public class BudgetItemsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<BudgetItemDto>>> List([FromQuery] int tripId, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
-        var trip = await _trips.GetByIdForUserAsync(tripId, userId, cancellationToken);
-        if (trip is null)
+        if (!await _tripAccess.HasAccessAsync(tripId, TripRole.Viewer, cancellationToken))
         {
             return NotFound();
         }
@@ -54,33 +46,27 @@ public class BudgetItemsController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<BudgetItemDto>> GetById(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
+        var item = await _budgetItems.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Viewer, cancellationToken))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var item = await _budgetItems.GetByIdForUserAsync(id, userId, cancellationToken);
-        return item is null ? NotFound() : Ok(ToDto(item));
+        return Ok(ToDto(item));
     }
 
     [HttpPost]
     public async Task<ActionResult<BudgetItemDto>> Create(CreateBudgetItemDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _createValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
             return ValidationProblemFor(validation);
         }
 
-        var trip = await _trips.GetByIdForUserAsync(dto.TripId, userId, cancellationToken);
-        if (trip is null)
+        if (!await _tripAccess.HasAccessAsync(dto.TripId, TripRole.Editor, cancellationToken))
         {
-            ModelState.AddModelError(nameof(dto.TripId), "TripId does not refer to a trip you own.");
+            ModelState.AddModelError(nameof(dto.TripId), "TripId does not refer to a trip you have edit access to.");
             return ValidationProblem(ModelState);
         }
 
@@ -104,19 +90,14 @@ public class BudgetItemsController : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<ActionResult<BudgetItemDto>> Update(int id, UpdateBudgetItemDto dto, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
         var validation = await _updateValidator.ValidateAsync(dto, cancellationToken);
         if (!validation.IsValid)
         {
             return ValidationProblemFor(validation);
         }
 
-        var item = await _budgetItems.GetByIdForUserAsync(id, userId, cancellationToken);
-        if (item is null)
+        var item = await _budgetItems.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Editor, cancellationToken))
         {
             return NotFound();
         }
@@ -136,13 +117,8 @@ public class BudgetItemsController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        if (_currentUser.UserId is not { } userId)
-        {
-            return Unauthorized();
-        }
-
-        var item = await _budgetItems.GetByIdForUserAsync(id, userId, cancellationToken);
-        if (item is null)
+        var item = await _budgetItems.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Editor, cancellationToken))
         {
             return NotFound();
         }
