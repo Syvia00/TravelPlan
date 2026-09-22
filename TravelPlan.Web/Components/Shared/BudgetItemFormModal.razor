@@ -1,0 +1,145 @@
+@inject BudgetItemsApiClient BudgetApi
+
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="@(_editingId is null ? "Add expense" : "Edit expense")">
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <div class="form-row">
+            <label for="budget-category">Category</label>
+            <InputSelect id="budget-category" @bind-Value="_model.Category">
+                @foreach (var category in Enum.GetValues<BudgetCategory>())
+                {
+                    <option value="@category">@category</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="form-row">
+            <label for="budget-description">Description</label>
+            <InputText id="budget-description" @bind-Value="_model.Description" />
+        </div>
+        <div class="form-row">
+            <label for="budget-amount">Amount</label>
+            <InputNumber id="budget-amount" @bind-Value="_model.Amount" />
+        </div>
+        <div class="form-row">
+            <label for="budget-currency">Currency</label>
+            <InputText id="budget-currency" @bind-Value="_model.Currency" maxlength="3" />
+        </div>
+        <div class="form-row">
+            <label for="budget-date">Date</label>
+            <InputDate id="budget-date" @bind-Value="_model.Date" />
+        </div>
+        <div class="form-row" style="flex-direction:row;align-items:center;gap:8px;">
+            <InputCheckbox id="budget-paid" @bind-Value="_model.IsPaid" />
+            <label for="budget-paid" style="font-size:13px;color:var(--ink);">Paid</label>
+        </div>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="form-errors">
+                @foreach (var err in _errors)
+                {
+                    <li>@err</li>
+                }
+            </ul>
+        }
+
+        <button type="submit" class="btn primary" disabled="@_submitting">
+            @(_submitting ? "Saving…" : _editingId is null ? "Add expense" : "Save changes")
+        </button>
+    </EditForm>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired]
+    public int TripId { get; set; }
+
+    [Parameter]
+    public EventCallback OnCreated { get; set; }
+
+    [Parameter]
+    public EventCallback OnUpdated { get; set; }
+
+    private bool _isOpen;
+    private bool _submitting;
+    private List<string> _errors = new();
+    private BudgetItemFormModel _model = new();
+    private int? _editingId;
+
+    /// <summary>Opens in create mode.</summary>
+    public void Open()
+    {
+        _editingId = null;
+        _model = new BudgetItemFormModel();
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Opens in edit mode, pre-filled from an existing budget item.</summary>
+    public void Open(BudgetItemDto item)
+    {
+        _editingId = item.Id;
+        _model = new BudgetItemFormModel
+        {
+            Category = item.Category,
+            Description = item.Description,
+            Amount = item.Amount,
+            Currency = item.Currency,
+            Date = item.Date,
+            IsPaid = item.IsPaid,
+        };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    private Task OnIsOpenChanged(bool open)
+    {
+        _isOpen = open;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _errors.Clear();
+        try
+        {
+            var currency = string.IsNullOrWhiteSpace(_model.Currency) ? "USD" : _model.Currency.ToUpperInvariant();
+
+            if (_editingId is { } id)
+            {
+                var dto = new UpdateBudgetItemDto(_model.Category, _model.Description, _model.Amount, currency, _model.Date, _model.IsPaid);
+                await BudgetApi.UpdateAsync(id, dto);
+                _isOpen = false;
+                await OnUpdated.InvokeAsync();
+            }
+            else
+            {
+                var dto = new CreateBudgetItemDto(TripId, _model.Category, _model.Description, _model.Amount, currency, _model.Date, _model.IsPaid);
+                await BudgetApi.CreateAsync(dto);
+                _isOpen = false;
+                await OnCreated.InvokeAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _errors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private class BudgetItemFormModel
+    {
+        public BudgetCategory Category { get; set; } = BudgetCategory.Other;
+        public string Description { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public bool IsPaid { get; set; }
+    }
+}

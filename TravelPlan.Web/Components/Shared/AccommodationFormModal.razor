@@ -1,16 +1,19 @@
 @inject AccommodationsApiClient AccommodationsApi
 
-<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="Add stay">
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="@(_editingId is null ? "Add stay" : "Edit stay")">
     <EditForm Model="_model" OnValidSubmit="SubmitAsync">
-        <div class="form-row">
-            <label for="stay-trip">Trip</label>
-            <InputSelect id="stay-trip" @bind-Value="_model.TripId">
-                @foreach (var trip in Trips)
-                {
-                    <option value="@trip.Id">@trip.Title</option>
-                }
-            </InputSelect>
-        </div>
+        @if (_editingId is null)
+        {
+            <div class="form-row">
+                <label for="stay-trip">Trip</label>
+                <InputSelect id="stay-trip" @bind-Value="_model.TripId">
+                    @foreach (var trip in Trips)
+                    {
+                        <option value="@trip.Id">@trip.Title</option>
+                    }
+                </InputSelect>
+            </div>
+        }
         <div class="form-row">
             <label for="stay-name">Name</label>
             <InputText id="stay-name" @bind-Value="_model.Name" />
@@ -42,7 +45,9 @@
             </ul>
         }
 
-        <button type="submit" class="btn primary" disabled="@_submitting">@(_submitting ? "Saving…" : "Add stay")</button>
+        <button type="submit" class="btn primary" disabled="@_submitting">
+            @(_submitting ? "Saving…" : _editingId is null ? "Add stay" : "Save changes")
+        </button>
     </EditForm>
 </Modal>
 
@@ -53,14 +58,40 @@
     [Parameter]
     public EventCallback OnCreated { get; set; }
 
+    [Parameter]
+    public EventCallback OnUpdated { get; set; }
+
     private bool _isOpen;
     private bool _submitting;
     private List<string> _errors = new();
     private AccommodationFormModel _model = new();
+    private int? _editingId;
+    private int? _editingDestinationId;
 
+    /// <summary>Opens in create mode.</summary>
     public void Open()
     {
+        _editingId = null;
         _model = new AccommodationFormModel { TripId = Trips.FirstOrDefault()?.Id ?? 0 };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Opens in edit mode, pre-filled from an existing accommodation.</summary>
+    public void Open(AccommodationDto accommodation)
+    {
+        _editingId = accommodation.Id;
+        _editingDestinationId = accommodation.DestinationId;
+        _model = new AccommodationFormModel
+        {
+            TripId = accommodation.TripId,
+            Name = accommodation.Name,
+            Address = accommodation.Address ?? string.Empty,
+            CheckIn = accommodation.CheckIn,
+            CheckOut = accommodation.CheckOut,
+            ConfirmationCode = accommodation.ConfirmationCode ?? string.Empty,
+        };
         _errors.Clear();
         _isOpen = true;
         StateHasChanged();
@@ -78,19 +109,23 @@
         _errors.Clear();
         try
         {
-            var dto = new CreateAccommodationDto(
-                _model.TripId,
-                null,
-                _model.Name,
-                string.IsNullOrWhiteSpace(_model.Address) ? null : _model.Address,
-                _model.CheckIn,
-                _model.CheckOut,
-                string.IsNullOrWhiteSpace(_model.ConfirmationCode) ? null : _model.ConfirmationCode,
-                null);
+            var address = string.IsNullOrWhiteSpace(_model.Address) ? null : _model.Address;
+            var confirmation = string.IsNullOrWhiteSpace(_model.ConfirmationCode) ? null : _model.ConfirmationCode;
 
-            await AccommodationsApi.CreateAsync(dto);
-            _isOpen = false;
-            await OnCreated.InvokeAsync();
+            if (_editingId is { } id)
+            {
+                var dto = new UpdateAccommodationDto(_editingDestinationId, _model.Name, address, _model.CheckIn, _model.CheckOut, confirmation, null);
+                await AccommodationsApi.UpdateAsync(id, dto);
+                _isOpen = false;
+                await OnUpdated.InvokeAsync();
+            }
+            else
+            {
+                var dto = new CreateAccommodationDto(_model.TripId, null, _model.Name, address, _model.CheckIn, _model.CheckOut, confirmation, null);
+                await AccommodationsApi.CreateAsync(dto);
+                _isOpen = false;
+                await OnCreated.InvokeAsync();
+            }
         }
         catch (ApiException ex)
         {

@@ -59,9 +59,23 @@
                 <div class="timeline-item">
                     <div style="flex:1;">
                         <div class="timeline-title">@(string.IsNullOrWhiteSpace(c.UserDisplayName) ? c.UserEmail : c.UserDisplayName)</div>
-                        <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
-                            @c.Role @(c.AcceptedAt is null ? "· Pending" : "")
-                        </div>
+                        @if (IsOwner)
+                        {
+                            <select style="font-size:11px;margin-top:2px;" value="@c.Role" @onchange="e => ChangeRoleAsync(c.Id, e.Value)">
+                                <option value="@TripRole.Viewer">Viewer</option>
+                                <option value="@TripRole.Editor">Editor</option>
+                            </select>
+                            @if (c.AcceptedAt is null)
+                            {
+                                <span class="timeline-time" style="color:var(--ink-soft);font-weight:400;"> · Pending</span>
+                            }
+                        }
+                        else
+                        {
+                            <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                @c.Role @(c.AcceptedAt is null ? "· Pending" : "")
+                            </div>
+                        }
                     </div>
                     @if (IsOwner)
                     {
@@ -180,6 +194,17 @@
     private async Task RevokeCollaboratorAsync(int id)
     {
         await CollaboratorsApi.RevokeAsync(id);
+        await ReloadCollaboratorsAsync();
+    }
+
+    private async Task ChangeRoleAsync(int id, object? value)
+    {
+        if (value is not string s || !Enum.TryParse<TripRole>(s, out var role))
+        {
+            return;
+        }
+
+        await CollaboratorsApi.UpdateRoleAsync(id, new UpdateTripCollaboratorDto(role));
         await ReloadCollaboratorsAsync();
     }
 

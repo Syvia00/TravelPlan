@@ -15,7 +15,10 @@ else
              @ondragover="@(() => { })" @ondragover:preventDefault
              @ondragenter="() => _backlogDragOver = true" @ondragleave="() => _backlogDragOver = false"
              @ondrop="() => HandleDropAsync(DropTarget.Backlog)">
-            <p class="timeline-label">Trip backlog</p>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <p class="timeline-label" style="margin:0;">Trip backlog</p>
+                <button type="button" class="modal-close" title="Add to backlog" @onclick="() => OpenCreate(null, null)">+</button>
+            </div>
             @if (_backlog.Count == 0)
             {
                 <p class="empty-day">Nothing in the backlog.</p>
@@ -24,8 +27,9 @@ else
             {
                 @foreach (var item in _backlog)
                 {
-                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id">
-                        <span class="timeline-title">@item.Title</span>
+                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
+                        <span class="timeline-title" style="flex:1;">@item.Title</span>
+                        <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
                     </div>
                 }
             }
@@ -35,7 +39,10 @@ else
              @ondragover="@(() => { })" @ondragover:preventDefault
              @ondragenter="() => _unscheduledDragOver = true" @ondragleave="() => _unscheduledDragOver = false"
              @ondrop="() => HandleDropAsync(DropTarget.UnscheduledToday)">
-            <p class="timeline-label">Unscheduled today</p>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <p class="timeline-label" style="margin:0;">Unscheduled today</p>
+                <button type="button" class="modal-close" title="Add, unscheduled" @onclick="() => OpenCreate(Date, null)">+</button>
+            </div>
             @if (_unscheduled.Count == 0)
             {
                 <p class="empty-day">Nothing unscheduled.</p>
@@ -44,8 +51,9 @@ else
             {
                 @foreach (var item in _unscheduled)
                 {
-                    <div class="timeline-item unscheduled draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id">
-                        <span class="timeline-title">@item.Title</span>
+                    <div class="timeline-item unscheduled draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
+                        <span class="timeline-title" style="flex:1;">@item.Title</span>
+                        <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
                     </div>
                 }
             }
@@ -55,7 +63,10 @@ else
              @ondragover="@(() => { })" @ondragover:preventDefault
              @ondragenter="() => _timelineDragOver = true" @ondragleave="() => _timelineDragOver = false"
              @ondrop="() => HandleDropAsync(DropTarget.Timeline)">
-            <p class="timeline-label">Timeline</p>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <p class="timeline-label" style="margin:0;">Timeline</p>
+                <button type="button" class="modal-close" title="Add to timeline" @onclick="() => OpenCreate(Date, DefaultDropTime())">+</button>
+            </div>
             @if (_scheduled.Count == 0)
             {
                 <p class="empty-day">Nothing scheduled.</p>
@@ -64,14 +75,17 @@ else
             {
                 @foreach (var item in _scheduled)
                 {
-                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id">
+                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
                         <span class="timeline-time">@item.Time!.Value.ToString("h:mm tt")</span>
-                        <span class="timeline-title">@item.Title</span>
+                        <span class="timeline-title" style="flex:1;">@item.Title</span>
+                        <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
                     </div>
                 }
             }
         </div>
     </div>
+
+    <PlanItemFormModal @ref="_formModal" OnCreated="LoadItemsAsync" OnUpdated="LoadItemsAsync" />
 }
 
 @code {
@@ -88,6 +102,7 @@ else
     private List<PlanItemDto> _backlog = new();
     private List<PlanItemDto> _scheduled = new();
     private List<PlanItemDto> _unscheduled = new();
+    private PlanItemFormModal? _formModal;
 
     private int? _draggedItemId;
     private bool _backlogDragOver;
@@ -118,6 +133,24 @@ else
         var forDay = items.Where(i => i.Date == Date).ToList();
         _scheduled = forDay.Where(i => i.Time is not null).OrderBy(i => i.Time).ToList();
         _unscheduled = forDay.Where(i => i.Time is null).OrderBy(i => i.SortOrder).ToList();
+    }
+
+    private void OpenCreate(DateOnly? date, TimeOnly? time)
+    {
+        if (_coveringTrip is null)
+        {
+            return;
+        }
+
+        _formModal?.Open(_coveringTrip.Id, date, time);
+    }
+
+    private void OpenEdit(PlanItemDto item) => _formModal?.Open(item);
+
+    private async Task DeleteAsync(int id)
+    {
+        await PlanItemsApi.DeleteAsync(id);
+        await LoadItemsAsync();
     }
 
     private async Task HandleDropAsync(DropTarget target)

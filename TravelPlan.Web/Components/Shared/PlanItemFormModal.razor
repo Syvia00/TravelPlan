@@ -1,0 +1,173 @@
+@inject PlanItemsApiClient PlanItemsApi
+
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="@(_editingId is null ? "New plan item" : "Edit plan item")">
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <div class="form-row">
+            <label for="item-title">Title</label>
+            <InputText id="item-title" @bind-Value="_model.Title" />
+        </div>
+        <div class="form-row" style="flex-direction:row;align-items:center;gap:8px;">
+            <InputCheckbox id="item-has-date" @bind-Value="_model.HasDate" />
+            <label for="item-has-date" style="font-size:13px;color:var(--ink);">On a specific day (otherwise: trip backlog)</label>
+        </div>
+        @if (_model.HasDate)
+        {
+            <div class="form-row">
+                <label for="item-date">Date</label>
+                <InputDate id="item-date" @bind-Value="_model.Date" />
+            </div>
+            <div class="form-row" style="flex-direction:row;align-items:center;gap:8px;">
+                <InputCheckbox id="item-has-time" @bind-Value="_model.HasTime" />
+                <label for="item-has-time" style="font-size:13px;color:var(--ink);">At a specific time</label>
+            </div>
+            @if (_model.HasTime)
+            {
+                <div class="form-row">
+                    <label for="item-time">Time</label>
+                    <InputDate id="item-time" Type="InputDateType.Time" @bind-Value="_model.Time" />
+                </div>
+            }
+        }
+        <div class="form-row">
+            <label for="item-notes">Notes</label>
+            <InputText id="item-notes" @bind-Value="_model.Notes" />
+        </div>
+        <div class="form-row">
+            <label for="item-url">Source link</label>
+            <InputText id="item-url" @bind-Value="_model.SourceUrl" />
+        </div>
+        @if (_editingId is not null)
+        {
+            <div class="form-row" style="flex-direction:row;align-items:center;gap:8px;">
+                <InputCheckbox id="item-done" @bind-Value="_model.IsDone" />
+                <label for="item-done" style="font-size:13px;color:var(--ink);">Done</label>
+            </div>
+        }
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="form-errors">
+                @foreach (var err in _errors)
+                {
+                    <li>@err</li>
+                }
+            </ul>
+        }
+
+        <button type="submit" class="btn primary" disabled="@_submitting">
+            @(_submitting ? "Saving…" : _editingId is null ? "Add item" : "Save changes")
+        </button>
+    </EditForm>
+</Modal>
+
+@code {
+    [Parameter]
+    public EventCallback OnCreated { get; set; }
+
+    [Parameter]
+    public EventCallback OnUpdated { get; set; }
+
+    private bool _isOpen;
+    private bool _submitting;
+    private List<string> _errors = new();
+    private PlanItemFormModel _model = new();
+    private int? _editingId;
+    private int _tripId;
+    private int _sortOrder;
+
+    /// <summary>Opens in create mode, pre-filled with the date/time context of whichever drop zone was used.</summary>
+    public void Open(int tripId, DateOnly? date, TimeOnly? time)
+    {
+        _editingId = null;
+        _tripId = tripId;
+        _sortOrder = 0;
+        _model = new PlanItemFormModel
+        {
+            HasDate = date is not null,
+            Date = date ?? DateOnly.FromDateTime(DateTime.Today),
+            HasTime = time is not null,
+            Time = time ?? new TimeOnly(9, 0),
+        };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Opens in edit mode, pre-filled from an existing plan item.</summary>
+    public void Open(PlanItemDto item)
+    {
+        _editingId = item.Id;
+        _tripId = item.TripId;
+        _sortOrder = item.SortOrder;
+        _model = new PlanItemFormModel
+        {
+            Title = item.Title,
+            HasDate = item.Date is not null,
+            Date = item.Date ?? DateOnly.FromDateTime(DateTime.Today),
+            HasTime = item.Time is not null,
+            Time = item.Time ?? new TimeOnly(9, 0),
+            Notes = item.Notes ?? string.Empty,
+            SourceUrl = item.SourceUrl ?? string.Empty,
+            IsDone = item.IsDone,
+        };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    private Task OnIsOpenChanged(bool open)
+    {
+        _isOpen = open;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        _errors.Clear();
+        try
+        {
+            var date = _model.HasDate ? _model.Date : (DateOnly?)null;
+            var time = _model.HasDate && _model.HasTime ? _model.Time : (TimeOnly?)null;
+            var notes = string.IsNullOrWhiteSpace(_model.Notes) ? null : _model.Notes;
+            var sourceUrl = string.IsNullOrWhiteSpace(_model.SourceUrl) ? null : _model.SourceUrl;
+
+            if (_editingId is { } id)
+            {
+                var dto = new UpdatePlanItemDto(null, date, time, _model.Title, notes, _sortOrder, sourceUrl, _model.IsDone);
+                await PlanItemsApi.UpdateAsync(id, dto);
+                _isOpen = false;
+                await OnUpdated.InvokeAsync();
+            }
+            else
+            {
+                var dto = new CreatePlanItemDto(_tripId, null, date, time, _model.Title, notes, _sortOrder, sourceUrl);
+                await PlanItemsApi.CreateAsync(dto);
+                _isOpen = false;
+                await OnCreated.InvokeAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _errors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private class PlanItemFormModel
+    {
+        public string Title { get; set; } = string.Empty;
+        public bool HasDate { get; set; }
+        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public bool HasTime { get; set; }
+        public TimeOnly Time { get; set; } = new(9, 0);
+        public string Notes { get; set; } = string.Empty;
+        public string SourceUrl { get; set; } = string.Empty;
+        public bool IsDone { get; set; }
+    }
+}

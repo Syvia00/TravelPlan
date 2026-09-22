@@ -4,6 +4,10 @@
    not per-page attributes (see its NotAuthorized branch). *@
 
 @inject TripsApiClient TripsApi
+@inject AccommodationsApiClient AccommodationsApi
+@inject TravelLegsApiClient TravelLegsApi
+@inject BudgetItemsApiClient BudgetApi
+@inject NavigationManager Navigation
 
 <div class="page cool" style="flex:1 1 100%;">
     <a class="settings-icon" href="/" title="Back to your book">←</a>
@@ -21,11 +25,152 @@
             · @(_trip.IsOwner ? "Owner" : _trip.Role?.ToString() ?? "Viewer")
         </p>
 
-        <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;margin-bottom:20px;" href="@($"/trips/{TripId}/report")">
-            View itinerary report →
-        </a>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+            <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;margin:0;" href="@($"/trips/{TripId}/report")">
+                View itinerary report →
+            </a>
+            @if (CanEdit)
+            {
+                <button type="button" class="btn ghost" style="width:auto;padding:10px 20px;margin:0;" @onclick="() => _tripModal?.Open(_trip)">Edit trip</button>
+            }
+            @if (_trip.IsOwner)
+            {
+                <button type="button" class="btn ghost" style="width:auto;padding:10px 20px;margin:0;" @onclick="DeleteTripAsync" disabled="@_deleting">
+                    @(_deleting ? "Deleting…" : "Delete trip")
+                </button>
+            }
+        </div>
+        @if (_deleteError is not null)
+        {
+            <ul class="form-errors"><li>@_deleteError</li></ul>
+        }
+
+        <!-- Accommodations -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 class="modal-title" style="margin:0;">Stays</h3>
+                @if (CanEdit)
+                {
+                    <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _stayModal?.Open()">+ Add stay</button>
+                }
+            </div>
+            @if (_accommodations is null)
+            {
+                <p class="empty-day">Loading…</p>
+            }
+            else if (_accommodations.Count == 0)
+            {
+                <p class="empty-day">No stays added yet.</p>
+            }
+            else
+            {
+                <div class="day-timeline">
+                    @foreach (var stay in _accommodations)
+                    {
+                        <div class="timeline-item">
+                            <div style="flex:1;">
+                                <div class="timeline-title">@stay.Name</div>
+                                <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                    @stay.CheckIn.ToString("MMM d") – @stay.CheckOut.ToString("MMM d")
+                                </div>
+                            </div>
+                            @if (CanEdit)
+                            {
+                                <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _stayModal?.Open(stay)">Edit</button>
+                                <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteStayAsync(stay.Id)">🗙</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Travel legs -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 class="modal-title" style="margin:0;">Transport</h3>
+                @if (CanEdit)
+                {
+                    <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _transportModal?.Open()">+ Add transport</button>
+                }
+            </div>
+            @if (_travelLegs is null)
+            {
+                <p class="empty-day">Loading…</p>
+            }
+            else if (_travelLegs.Count == 0)
+            {
+                <p class="empty-day">No transport added yet.</p>
+            }
+            else
+            {
+                <div class="day-timeline">
+                    @foreach (var leg in _travelLegs)
+                    {
+                        <div class="timeline-item">
+                            <div style="flex:1;">
+                                <div class="timeline-title">@leg.TransportType: @leg.DepartureLocation → @leg.ArrivalLocation</div>
+                                <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                    @leg.DepartureTime.ToString("MMM d, h:mm tt")
+                                </div>
+                            </div>
+                            @if (CanEdit)
+                            {
+                                <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _transportModal?.Open(leg)">Edit</button>
+                                <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteLegAsync(leg.Id)">🗙</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Budget items -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 class="modal-title" style="margin:0;">Expenses</h3>
+                @if (CanEdit)
+                {
+                    <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _budgetModal?.Open()">+ Add expense</button>
+                }
+            </div>
+            @if (_budgetItems is null)
+            {
+                <p class="empty-day">Loading…</p>
+            }
+            else if (_budgetItems.Count == 0)
+            {
+                <p class="empty-day">No expenses added yet.</p>
+            }
+            else
+            {
+                <div class="day-timeline">
+                    @foreach (var expense in _budgetItems)
+                    {
+                        <div class="timeline-item">
+                            <div style="flex:1;">
+                                <div class="timeline-title">@expense.Description — @expense.Amount.ToString("N0") @expense.Currency</div>
+                                <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                    @expense.Category @(expense.IsPaid ? "· Paid" : "· Unpaid")
+                                </div>
+                            </div>
+                            @if (CanEdit)
+                            {
+                                <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _budgetModal?.Open(expense)">Edit</button>
+                                <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteExpenseAsync(expense.Id)">🗙</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
 
         <ShareTripPanel TripId="TripId" IsOwner="_trip.IsOwner" />
+
+        <TripFormModal @ref="_tripModal" OnUpdated="ReloadTripAsync" />
+        <AccommodationFormModal @ref="_stayModal" Trips="@(new[] { _trip })" OnCreated="ReloadAccommodationsAsync" OnUpdated="ReloadAccommodationsAsync" />
+        <TravelLegFormModal @ref="_transportModal" Trips="@(new[] { _trip })" OnCreated="ReloadLegsAsync" OnUpdated="ReloadLegsAsync" />
+        <BudgetItemFormModal @ref="_budgetModal" TripId="TripId" OnCreated="ReloadBudgetAsync" OnUpdated="ReloadBudgetAsync" />
     }
 </div>
 
@@ -34,10 +179,76 @@
     public int TripId { get; set; }
 
     private TripDto? _trip;
+    private List<AccommodationDto>? _accommodations;
+    private List<TravelLegDto>? _travelLegs;
+    private List<BudgetItemDto>? _budgetItems;
+
+    private TripFormModal? _tripModal;
+    private AccommodationFormModal? _stayModal;
+    private TravelLegFormModal? _transportModal;
+    private BudgetItemFormModal? _budgetModal;
+
+    private bool _deleting;
+    private string? _deleteError;
+
+    /// <summary>Owner or Editor — Viewers see everything read-only.</summary>
+    private bool CanEdit => _trip is { } t && (t.IsOwner || t.Role == TripRole.Editor);
 
     protected override async Task OnParametersSetAsync()
     {
         _trip = null;
+        _accommodations = null;
+        _travelLegs = null;
+        _budgetItems = null;
         _trip = await TripsApi.GetAsync(TripId);
+        if (_trip is not null)
+        {
+            await Task.WhenAll(ReloadAccommodationsAsync(), ReloadLegsAsync(), ReloadBudgetAsync());
+        }
+    }
+
+    private async Task ReloadTripAsync() => _trip = await TripsApi.GetAsync(TripId);
+
+    private async Task ReloadAccommodationsAsync() => _accommodations = await AccommodationsApi.ListByTripAsync(TripId);
+
+    private async Task ReloadLegsAsync() => _travelLegs = await TravelLegsApi.ListByTripAsync(TripId);
+
+    private async Task ReloadBudgetAsync() => _budgetItems = await BudgetApi.ListByTripAsync(TripId);
+
+    private async Task DeleteStayAsync(int id)
+    {
+        await AccommodationsApi.DeleteAsync(id);
+        await ReloadAccommodationsAsync();
+    }
+
+    private async Task DeleteLegAsync(int id)
+    {
+        await TravelLegsApi.DeleteAsync(id);
+        await ReloadLegsAsync();
+    }
+
+    private async Task DeleteExpenseAsync(int id)
+    {
+        await BudgetApi.DeleteAsync(id);
+        await ReloadBudgetAsync();
+    }
+
+    private async Task DeleteTripAsync()
+    {
+        _deleting = true;
+        _deleteError = null;
+        try
+        {
+            await TripsApi.DeleteAsync(TripId);
+            Navigation.NavigateTo("/");
+        }
+        catch (ApiException ex)
+        {
+            _deleteError = ex.Message;
+        }
+        finally
+        {
+            _deleting = false;
+        }
     }
 }

@@ -1,6 +1,6 @@
 @inject TripsApiClient TripsApi
 
-<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="New trip">
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="@(_editingId is null ? "New trip" : "Edit trip")">
     <EditForm Model="_model" OnValidSubmit="SubmitAsync">
         <div class="form-row">
             <label for="trip-title">Title</label>
@@ -33,7 +33,9 @@
             </ul>
         }
 
-        <button type="submit" class="btn primary" disabled="@_submitting">@(_submitting ? "Saving…" : "Create trip")</button>
+        <button type="submit" class="btn primary" disabled="@_submitting">
+            @(_submitting ? "Saving…" : _editingId is null ? "Create trip" : "Save changes")
+        </button>
     </EditForm>
 </Modal>
 
@@ -41,14 +43,39 @@
     [Parameter]
     public EventCallback OnCreated { get; set; }
 
+    [Parameter]
+    public EventCallback OnUpdated { get; set; }
+
     private bool _isOpen;
     private bool _submitting;
     private List<string> _errors = new();
     private TripFormModel _model = new();
+    private int? _editingId;
+    private TripStatus _editingStatus;
 
+    /// <summary>Opens in create mode.</summary>
     public void Open()
     {
+        _editingId = null;
         _model = new TripFormModel();
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Opens in edit mode, pre-filled from an existing trip.</summary>
+    public void Open(TripDto trip)
+    {
+        _editingId = trip.Id;
+        _editingStatus = trip.Status;
+        _model = new TripFormModel
+        {
+            Title = trip.Title,
+            StartDate = trip.StartDate,
+            EndDate = trip.EndDate,
+            Currency = trip.Currency ?? "USD",
+            TotalBudget = trip.TotalBudget,
+        };
         _errors.Clear();
         _isOpen = true;
         StateHasChanged();
@@ -66,17 +93,22 @@
         _errors.Clear();
         try
         {
-            var dto = new CreateTripDto(
-                _model.Title,
-                null,
-                _model.StartDate,
-                _model.EndDate,
-                string.IsNullOrWhiteSpace(_model.Currency) ? null : _model.Currency.ToUpperInvariant(),
-                _model.TotalBudget);
+            var currency = string.IsNullOrWhiteSpace(_model.Currency) ? null : _model.Currency.ToUpperInvariant();
 
-            await TripsApi.CreateAsync(dto);
-            _isOpen = false;
-            await OnCreated.InvokeAsync();
+            if (_editingId is { } id)
+            {
+                var dto = new UpdateTripDto(_model.Title, null, _editingStatus, _model.StartDate, _model.EndDate, currency, _model.TotalBudget);
+                await TripsApi.UpdateAsync(id, dto);
+                _isOpen = false;
+                await OnUpdated.InvokeAsync();
+            }
+            else
+            {
+                var dto = new CreateTripDto(_model.Title, null, _model.StartDate, _model.EndDate, currency, _model.TotalBudget);
+                await TripsApi.CreateAsync(dto);
+                _isOpen = false;
+                await OnCreated.InvokeAsync();
+            }
         }
         catch (ApiException ex)
         {

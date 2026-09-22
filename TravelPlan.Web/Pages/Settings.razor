@@ -5,8 +5,29 @@
    TravelPlan-Project-Plan-v2.md section 4. This route exists so the settings icon on
    Home has somewhere real to link to, proving the page-turn shell works across routes. *@
 
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@inject NavigationManager Navigation
+
 <div class="page cool" style="flex:1 1 100%;">
     <h1 class="cal-title">Settings</h1>
-    <p style="color:var(--ink-soft);font-size:13px;">Coming soon.</p>
-    <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;" href="/">← Back to your book</a>
+    <p style="color:var(--ink-soft);font-size:13px;">More settings coming soon.</p>
+
+    <button type="button" class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;margin-top:16px;" @onclick="SignOut">
+        Sign out
+    </button>
+    <br />
+    <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;margin-top:10px;" href="/">← Back to your book</a>
 </div>
+
+@code {
+    // NavigateToLogout records (via sessionStorage) that this is a genuine user-initiated sign-out
+    // before navigating — a bare NavigateTo("authentication/logout") is rejected by MSAL's logout
+    // flow with "logout was not initiated from within the page". RemoteAuthenticatorView
+    // (Pages/Authentication.razor) then handles the actual MSAL logout and clears the session; on
+    // success it redirects to "/", which — now unauthenticated — App.razor renders as the
+    // closed-book Landing page automatically.
+    private void SignOut()
+    {
+        Navigation.NavigateToLogout("authentication/logout");
+    }
+}

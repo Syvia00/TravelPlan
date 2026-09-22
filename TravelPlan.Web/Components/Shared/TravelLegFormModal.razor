@@ -1,16 +1,19 @@
 @inject TravelLegsApiClient TravelLegsApi
 
-<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="Add transport">
+<Modal IsOpen="@_isOpen" IsOpenChanged="OnIsOpenChanged" Title="@(_editingId is null ? "Add transport" : "Edit transport")">
     <EditForm Model="_model" OnValidSubmit="SubmitAsync">
-        <div class="form-row">
-            <label for="leg-trip">Trip</label>
-            <InputSelect id="leg-trip" @bind-Value="_model.TripId">
-                @foreach (var trip in Trips)
-                {
-                    <option value="@trip.Id">@trip.Title</option>
-                }
-            </InputSelect>
-        </div>
+        @if (_editingId is null)
+        {
+            <div class="form-row">
+                <label for="leg-trip">Trip</label>
+                <InputSelect id="leg-trip" @bind-Value="_model.TripId">
+                    @foreach (var trip in Trips)
+                    {
+                        <option value="@trip.Id">@trip.Title</option>
+                    }
+                </InputSelect>
+            </div>
+        }
         <div class="form-row">
             <label for="leg-type">Transport type</label>
             <InputSelect id="leg-type" @bind-Value="_model.TransportType">
@@ -51,7 +54,9 @@
             </ul>
         }
 
-        <button type="submit" class="btn primary" disabled="@_submitting">@(_submitting ? "Saving…" : "Add transport")</button>
+        <button type="submit" class="btn primary" disabled="@_submitting">
+            @(_submitting ? "Saving…" : _editingId is null ? "Add transport" : "Save changes")
+        </button>
     </EditForm>
 </Modal>
 
@@ -62,14 +67,39 @@
     [Parameter]
     public EventCallback OnCreated { get; set; }
 
+    [Parameter]
+    public EventCallback OnUpdated { get; set; }
+
     private bool _isOpen;
     private bool _submitting;
     private List<string> _errors = new();
     private TravelLegFormModel _model = new();
+    private int? _editingId;
 
+    /// <summary>Opens in create mode.</summary>
     public void Open()
     {
+        _editingId = null;
         _model = new TravelLegFormModel { TripId = Trips.FirstOrDefault()?.Id ?? 0 };
+        _errors.Clear();
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Opens in edit mode, pre-filled from an existing travel leg.</summary>
+    public void Open(TravelLegDto leg)
+    {
+        _editingId = leg.Id;
+        _model = new TravelLegFormModel
+        {
+            TripId = leg.TripId,
+            TransportType = leg.TransportType,
+            DepartureLocation = leg.DepartureLocation,
+            ArrivalLocation = leg.ArrivalLocation,
+            DepartureTime = leg.DepartureTime,
+            ArrivalTime = leg.ArrivalTime,
+            ConfirmationCode = leg.ConfirmationCode ?? string.Empty,
+        };
         _errors.Clear();
         _isOpen = true;
         StateHasChanged();
@@ -87,19 +117,22 @@
         _errors.Clear();
         try
         {
-            var dto = new CreateTravelLegDto(
-                _model.TripId,
-                _model.DepartureLocation,
-                _model.ArrivalLocation,
-                _model.DepartureTime,
-                _model.ArrivalTime,
-                _model.TransportType,
-                string.IsNullOrWhiteSpace(_model.ConfirmationCode) ? null : _model.ConfirmationCode,
-                null);
+            var confirmation = string.IsNullOrWhiteSpace(_model.ConfirmationCode) ? null : _model.ConfirmationCode;
 
-            await TravelLegsApi.CreateAsync(dto);
-            _isOpen = false;
-            await OnCreated.InvokeAsync();
+            if (_editingId is { } id)
+            {
+                var dto = new UpdateTravelLegDto(_model.DepartureLocation, _model.ArrivalLocation, _model.DepartureTime, _model.ArrivalTime, _model.TransportType, confirmation, null);
+                await TravelLegsApi.UpdateAsync(id, dto);
+                _isOpen = false;
+                await OnUpdated.InvokeAsync();
+            }
+            else
+            {
+                var dto = new CreateTravelLegDto(_model.TripId, _model.DepartureLocation, _model.ArrivalLocation, _model.DepartureTime, _model.ArrivalTime, _model.TransportType, confirmation, null);
+                await TravelLegsApi.CreateAsync(dto);
+                _isOpen = false;
+                await OnCreated.InvokeAsync();
+            }
         }
         catch (ApiException ex)
         {
