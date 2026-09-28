@@ -384,10 +384,8 @@ namespace TravelPlan.Api.Migrations.SqlServer
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
 
                     b.Property<int>("TripId")
                         .HasColumnType("int");
@@ -466,10 +464,8 @@ namespace TravelPlan.Api.Migrations.SqlServer
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
 
                     b.Property<string>("Token")
                         .IsRequired()

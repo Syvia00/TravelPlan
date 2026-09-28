@@ -8,7 +8,12 @@ public class TripCollaboratorConfiguration : IEntityTypeConfiguration<TripCollab
 {
     public void Configure(EntityTypeBuilder<TripCollaborator> builder)
     {
-        builder.Property(c => c.Role).HasConversion<string>().HasMaxLength(10);
+        // Stored as its underlying int (Viewer=0 < Editor=1), not HasConversion<string>() — a
+        // text column made ITripAccessService.HasAccessAsync's ">=" privilege check translate
+        // into a SQL string comparison ("Editor" < "Viewer" alphabetically, the inverse of their
+        // intended order), letting a Viewer collaborator pass an Editor-only check. Fixed in that
+        // service for now by comparing in memory instead, but storing the enum numerically removes
+        // the hazard for every future comparison too, not just the ones audited so far.
         builder.Property(c => c.InvitedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
         // One invite per (trip, user) — TripCollaboratorsController.Create checks this
