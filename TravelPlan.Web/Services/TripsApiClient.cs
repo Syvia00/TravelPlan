@@ -14,6 +14,10 @@ public class TripsApiClient : ApiClientBase
     public Task<TripDto?> GetAsync(int id, CancellationToken cancellationToken = default) =>
         GetOrDefaultAsync<TripDto>($"api/trips/{id}", cancellationToken);
 
+    /// <summary>Resolves the trip an "X-Share-Token"-carrying HttpClient's link points at.</summary>
+    public Task<TripDto?> GetSharedAsync(CancellationToken cancellationToken = default) =>
+        GetOrDefaultAsync<TripDto>("api/trips/shared", cancellationToken);
+
     public Task<TripDto> CreateAsync(CreateTripDto dto, CancellationToken cancellationToken = default) =>
         PostAsync<TripDto>("api/trips", dto, cancellationToken);
 

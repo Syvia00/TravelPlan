@@ -68,6 +68,20 @@ public class TripsController : ControllerBase
         return trip is null ? NotFound() : Ok(ToDto(trip, access.Value));
     }
 
+    /// <summary>
+    /// Resolves the trip a share-link visitor's token points at — there's no id in the route
+    /// because the visitor only has the token itself. By the time this runs, ShareLinkAuthHandler
+    /// has already validated it and turned it into ICurrentUserService.ShareLinkTripId/Role (see
+    /// the "SmartAuth" policy scheme in Program.cs, selected whenever the "X-Share-Token" header
+    /// is present). A JWT caller (no share-token header) always gets NotFound here — this route
+    /// only serves the anonymous/scoped visitor path; a signed-in user views trips via GetById.
+    /// </summary>
+    [HttpGet("shared")]
+    public Task<ActionResult<TripDto>> GetShared(CancellationToken cancellationToken) =>
+        _currentUser.ShareLinkTripId is { } tripId
+            ? GetById(tripId, cancellationToken)
+            : Task.FromResult<ActionResult<TripDto>>(NotFound());
+
     [HttpPost]
     public async Task<ActionResult<TripDto>> Create(CreateTripDto dto, CancellationToken cancellationToken)
     {

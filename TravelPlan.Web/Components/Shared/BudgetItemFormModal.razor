@@ -52,11 +52,18 @@
     [Parameter, EditorRequired]
     public int TripId { get; set; }
 
+    /// <summary>Overrides the injected client — used by Pages/SharedTrip.razor to route through a
+    /// share-token-carrying HttpClient instead of the MSAL-authenticated DI default.</summary>
+    [Parameter]
+    public BudgetItemsApiClient? Api { get; set; }
+
     [Parameter]
     public EventCallback OnCreated { get; set; }
 
     [Parameter]
     public EventCallback OnUpdated { get; set; }
+
+    private BudgetItemsApiClient EffectiveApi => Api ?? BudgetApi;
 
     private bool _isOpen;
     private bool _submitting;
@@ -109,14 +116,14 @@
             if (_editingId is { } id)
             {
                 var dto = new UpdateBudgetItemDto(_model.Category, _model.Description, _model.Amount, currency, _model.Date, _model.IsPaid);
-                await BudgetApi.UpdateAsync(id, dto);
+                await EffectiveApi.UpdateAsync(id, dto);
                 _isOpen = false;
                 await OnUpdated.InvokeAsync();
             }
             else
             {
                 var dto = new CreateBudgetItemDto(TripId, _model.Category, _model.Description, _model.Amount, currency, _model.Date, _model.IsPaid);
-                await BudgetApi.CreateAsync(dto);
+                await EffectiveApi.CreateAsync(dto);
                 _isOpen = false;
                 await OnCreated.InvokeAsync();
             }

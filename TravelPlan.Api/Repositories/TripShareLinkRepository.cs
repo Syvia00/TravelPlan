@@ -14,4 +14,7 @@ public class TripShareLinkRepository : Repository<TripShareLink>, ITripShareLink
         DbSet.Where(l => l.TripId == tripId)
             .OrderBy(l => l.CreatedAt)
             .ToListAsync(cancellationToken);
+
+    public Task<TripShareLink?> GetByTokenAsync(string token, CancellationToken cancellationToken = default) =>
+        DbSet.SingleOrDefaultAsync(l => l.Token == token, cancellationToken);
 }

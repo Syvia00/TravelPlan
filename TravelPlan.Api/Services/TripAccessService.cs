@@ -30,11 +30,30 @@ public class TripAccessService : ITripAccessService
             return false;
         }
 
-        return await _context.Trips.AnyAsync(
-            t => t.Id == tripId &&
-                 (t.UserId == userId ||
-                  t.Collaborators.Any(c => c.UserId == userId && c.AcceptedAt != null && c.Role >= minimumRole)),
-            cancellationToken);
+        // TripCollaborator.Role is stored as text (HasConversion<string>() — see
+        // TripCollaboratorConfiguration), so "c.Role >= minimumRole" inside the query below would
+        // get translated into a SQL string comparison, not a numeric one: alphabetically "Editor"
+        // < "Viewer", the opposite of their intended privilege order. Project the raw role out
+        // first (same shape as GetAccessInfoAsync below, which gets this right already) and do the
+        // >= comparison in memory instead, after EF has converted it back to the enum.
+        var trip = await _context.Trips
+            .Where(t => t.Id == tripId)
+            .Select(t => new
+            {
+                t.UserId,
+                CollaboratorRole = t.Collaborators
+                    .Where(c => c.UserId == userId && c.AcceptedAt != null)
+                    .Select(c => (TripRole?)c.Role)
+                    .FirstOrDefault(),
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (trip is null)
+        {
+            return false;
+        }
+
+        return trip.UserId == userId || (trip.CollaboratorRole is { } role && role >= minimumRole);
     }
 
     public async Task<bool> IsOwnerAsync(int tripId, CancellationToken cancellationToken = default)

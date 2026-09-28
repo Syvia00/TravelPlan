@@ -16,4 +16,8 @@ public class TripShareLinksApiClient : ApiClientBase
 
     public Task RevokeAsync(int id, CancellationToken cancellationToken = default) =>
         DeleteAsync($"api/trip-share-links/{id}", cancellationToken);
+
+    /// <summary>Must be called on the normal (JWT) client, not one carrying "X-Share-Token".</summary>
+    public Task<ClaimTripShareLinkResultDto> ClaimAsync(string token, CancellationToken cancellationToken = default) =>
+        PostAsync<ClaimTripShareLinkResultDto>("api/trip-share-links/claim", new ClaimTripShareLinkDto(token), cancellationToken);
 }

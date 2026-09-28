@@ -1,0 +1,320 @@
+@page "/shared/{Token}"
+
+@* The anonymous-visitor landing page for a TripShareLinksController link — copied verbatim from
+   ShareTripPanel.razor's "Copy" button as "{BaseUri}shared/{token}". Exempted from App.razor's
+   global <AuthorizeView> route gate (alongside Pages/Authentication.razor) so it renders for a
+   visitor who isn't signed in at all, not just ones with an account.
+
+   All trip data here goes through a *second* HttpClient (see Program.cs's "TravelPlan.Api.Shared"
+   named client) that carries the link's token as an "X-Share-Token" header instead of an MSAL
+   bearer token — the DI-registered ApiClients/TripsApiClient etc. always go through
+   AuthorizationMessageHandler and would force an anonymous visitor into a login redirect. The
+   form modals (TripFormModal/AccommodationFormModal/TravelLegFormModal/BudgetItemFormModal) take
+   an optional Api override parameter for exactly this reason — see their EffectiveApi property. *@
+
+@inject IHttpClientFactory HttpClientFactory
+@inject TripShareLinksApiClient ShareLinksApi
+@inject NavigationManager Navigation
+
+<div class="page cool" style="flex:1 1 100%;">
+    <a class="settings-icon" href="/" title="Back to your book">←</a>
+
+    @if (_state == LoadState.Loading)
+    {
+        <p class="empty-day">Loading…</p>
+    }
+    else if (_state == LoadState.NotFound)
+    {
+        <p class="eyebrow">SHARED TRIP</p>
+        <h1 class="cal-title" style="margin-bottom:4px;">Link not found</h1>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 16px;">
+            This share link is invalid, revoked, or has expired. Ask whoever sent it for a new one.
+        </p>
+        <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;" href="/">← Back to TravelPlan</a>
+    }
+    else if (_trip is not null)
+    {
+        <AuthorizeView>
+            <Authorized>
+                <div class="card" style="margin-bottom:16px;">
+                    <p style="margin:0 0 10px;font-size:13px;color:var(--ink);">
+                        You're signed in. Save this trip to your account so you don't need this link again.
+                    </p>
+                    @if (_claimErrors.Count > 0)
+                    {
+                        <ul class="form-errors">
+                            @foreach (var err in _claimErrors)
+                            {
+                                <li>@err</li>
+                            }
+                        </ul>
+                    }
+                    <button type="button" class="btn primary" style="width:auto;padding:10px 16px;" disabled="@_claiming" @onclick="ClaimAsync">
+                        @(_claiming ? "Saving…" : "Save to my account")
+                    </button>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <p class="eyebrow">TRIP</p>
+        <h1 class="cal-title" style="margin-bottom:4px;">@_trip.Title</h1>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 16px;">
+            @_trip.StartDate.ToString("MMM d") – @_trip.EndDate.ToString("MMM d, yyyy")
+            · Shared @(CanEdit ? "(can edit)" : "(view only)")
+        </p>
+
+        @if (CanEdit)
+        {
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+                <button type="button" class="btn ghost" style="width:auto;padding:10px 20px;margin:0;" @onclick="() => _tripModal?.Open(_trip)">Edit trip</button>
+            </div>
+        }
+
+        <!-- Accommodations -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 class="modal-title" style="margin:0;">Stays</h3>
+                @if (CanEdit)
+                {
+                    <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _stayModal?.Open()">+ Add stay</button>
+                }
+            </div>
+            @if (_accommodations is null)
+            {
+                <p class="empty-day">Loading…</p>
+            }
+            else if (_accommodations.Count == 0)
+            {
+                <p class="empty-day">No stays added yet.</p>
+            }
+            else
+            {
+                <div class="day-timeline">
+                    @foreach (var stay in _accommodations)
+                    {
+                        <div class="timeline-item">
+                            <div style="flex:1;">
+                                <div class="timeline-title">@stay.Name</div>
+                                <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                    @stay.CheckIn.ToString("MMM d") – @stay.CheckOut.ToString("MMM d")
+                                </div>
+                            </div>
+                            @if (CanEdit)
+                            {
+                                <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _stayModal?.Open(stay)">Edit</button>
+                                <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteStayAsync(stay.Id)">🗙</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Travel legs -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 class="modal-title" style="margin:0;">Transport</h3>
+                @if (CanEdit)
+                {
+                    <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _transportModal?.Open()">+ Add transport</button>
+                }
+            </div>
+            @if (_travelLegs is null)
+            {
+                <p class="empty-day">Loading…</p>
+            }
+            else if (_travelLegs.Count == 0)
+            {
+                <p class="empty-day">No transport added yet.</p>
+            }
+            else
+            {
+                <div class="day-timeline">
+                    @foreach (var leg in _travelLegs)
+                    {
+                        <div class="timeline-item">
+                            <div style="flex:1;">
+                                <div class="timeline-title">@leg.TransportType: @leg.DepartureLocation → @leg.ArrivalLocation</div>
+                                <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                    @leg.DepartureTime.ToString("MMM d, h:mm tt")
+                                </div>
+                            </div>
+                            @if (CanEdit)
+                            {
+                                <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _transportModal?.Open(leg)">Edit</button>
+                                <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteLegAsync(leg.Id)">🗙</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Budget items -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 class="modal-title" style="margin:0;">Expenses</h3>
+                @if (CanEdit)
+                {
+                    <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _budgetModal?.Open()">+ Add expense</button>
+                }
+            </div>
+            @if (_budgetItems is null)
+            {
+                <p class="empty-day">Loading…</p>
+            }
+            else if (_budgetItems.Count == 0)
+            {
+                <p class="empty-day">No expenses added yet.</p>
+            }
+            else
+            {
+                <div class="day-timeline">
+                    @foreach (var expense in _budgetItems)
+                    {
+                        <div class="timeline-item">
+                            <div style="flex:1;">
+                                <div class="timeline-title">@expense.Description — @expense.Amount.ToString("N0") @expense.Currency</div>
+                                <div class="timeline-time" style="color:var(--ink-soft);font-weight:400;">
+                                    @expense.Category @(expense.IsPaid ? "· Paid" : "· Unpaid")
+                                </div>
+                            </div>
+                            @if (CanEdit)
+                            {
+                                <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _budgetModal?.Open(expense)">Edit</button>
+                                <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteExpenseAsync(expense.Id)">🗙</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <TripFormModal @ref="_tripModal" Api="_tripsApi" OnUpdated="ReloadTripAsync" />
+        <AccommodationFormModal @ref="_stayModal" Api="_accommodationsApi" Trips="@(new[] { _trip })" OnCreated="ReloadAccommodationsAsync" OnUpdated="ReloadAccommodationsAsync" />
+        <TravelLegFormModal @ref="_transportModal" Api="_travelLegsApi" Trips="@(new[] { _trip })" OnCreated="ReloadLegsAsync" OnUpdated="ReloadLegsAsync" />
+        <BudgetItemFormModal @ref="_budgetModal" Api="_budgetApi" TripId="_trip.Id" OnCreated="ReloadBudgetAsync" OnUpdated="ReloadBudgetAsync" />
+    }
+</div>
+
+@code {
+    private enum LoadState { Loading, NotFound, Loaded }
+
+    [Parameter]
+    public string Token { get; set; } = string.Empty;
+
+    private HttpClient _sharedHttp = default!;
+    private TripsApiClient _tripsApi = default!;
+    private AccommodationsApiClient _accommodationsApi = default!;
+    private TravelLegsApiClient _travelLegsApi = default!;
+    private BudgetItemsApiClient _budgetApi = default!;
+
+    private LoadState _state = LoadState.Loading;
+    private TripDto? _trip;
+    private List<AccommodationDto>? _accommodations;
+    private List<TravelLegDto>? _travelLegs;
+    private List<BudgetItemDto>? _budgetItems;
+
+    private TripFormModal? _tripModal;
+    private AccommodationFormModal? _stayModal;
+    private TravelLegFormModal? _transportModal;
+    private BudgetItemFormModal? _budgetModal;
+
+    private bool _claiming;
+    private List<string> _claimErrors = new();
+
+    /// <summary>A share link never carries owner access — Editor is the only role that can edit.</summary>
+    private bool CanEdit => _trip?.Role == TripRole.Editor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _state = LoadState.Loading;
+        _trip = null;
+        _accommodations = null;
+        _travelLegs = null;
+        _budgetItems = null;
+
+        _sharedHttp = HttpClientFactory.CreateClient("TravelPlan.Api.Shared");
+        _sharedHttp.DefaultRequestHeaders.Remove("X-Share-Token");
+        _sharedHttp.DefaultRequestHeaders.Add("X-Share-Token", Token);
+        _tripsApi = new TripsApiClient(_sharedHttp);
+        _accommodationsApi = new AccommodationsApiClient(_sharedHttp);
+        _travelLegsApi = new TravelLegsApiClient(_sharedHttp);
+        _budgetApi = new BudgetItemsApiClient(_sharedHttp);
+
+        try
+        {
+            // An unknown or expired token fails authentication in ShareLinkAuthHandler itself, so
+            // [Authorize] rejects the request with 401 before GetShared's own "no ShareLinkTripId"
+            // NotFound branch is ever reached — that branch only fires for the (unreachable from
+            // here) case of no token at all. Both outcomes read the same to this anonymous
+            // visitor: the link doesn't work, so both map to the same friendly NotFound state.
+            _trip = await _tripsApi.GetSharedAsync();
+        }
+        catch (ApiException)
+        {
+            _trip = null;
+        }
+
+        if (_trip is null)
+        {
+            _state = LoadState.NotFound;
+            return;
+        }
+
+        _state = LoadState.Loaded;
+        await Task.WhenAll(ReloadAccommodationsAsync(), ReloadLegsAsync(), ReloadBudgetAsync());
+    }
+
+    private async Task ReloadTripAsync() => _trip = await _tripsApi.GetSharedAsync();
+
+    private async Task ReloadAccommodationsAsync() => _accommodations = await _accommodationsApi.ListByTripAsync(_trip!.Id);
+
+    private async Task ReloadLegsAsync() => _travelLegs = await _travelLegsApi.ListByTripAsync(_trip!.Id);
+
+    private async Task ReloadBudgetAsync() => _budgetItems = await _budgetApi.ListByTripAsync(_trip!.Id);
+
+    private async Task DeleteStayAsync(int id)
+    {
+        await _accommodationsApi.DeleteAsync(id);
+        await ReloadAccommodationsAsync();
+    }
+
+    private async Task DeleteLegAsync(int id)
+    {
+        await _travelLegsApi.DeleteAsync(id);
+        await ReloadLegsAsync();
+    }
+
+    private async Task DeleteExpenseAsync(int id)
+    {
+        await _budgetApi.DeleteAsync(id);
+        await ReloadBudgetAsync();
+    }
+
+    /// <summary>
+    /// Uses ShareLinksApi — the normal DI-injected, MSAL-authenticated client, not _tripsApi —
+    /// specifically so the request carries the visitor's own JWT instead of the share token; the
+    /// API keys the claim off the caller's real UserId (see TripShareLinksController.Claim).
+    /// </summary>
+    private async Task ClaimAsync()
+    {
+        _claiming = true;
+        _claimErrors.Clear();
+        try
+        {
+            var result = await ShareLinksApi.ClaimAsync(Token);
+            Navigation.NavigateTo($"/trips/{result.TripId}");
+        }
+        catch (ApiException ex)
+        {
+            _claimErrors = ex.Errors.Count > 0
+                ? ex.Errors.SelectMany(kv => kv.Value).ToList()
+                : new List<string> { ex.Message };
+        }
+        finally
+        {
+            _claiming = false;
+        }
+    }
+}

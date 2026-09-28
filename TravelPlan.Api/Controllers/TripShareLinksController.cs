@@ -12,8 +12,10 @@ namespace TravelPlan.Api.Controllers;
 /// <summary>
 /// Anonymous share links — generating and revoking is owner-only management (same reasoning as
 /// collaborator invites: even an Editor collaborator shouldn't be able to mint new access grants
-/// for the trip). Consuming a link (the anonymous visitor's side) isn't handled here at all — see
-/// ShareLinkAuthHandler, which reads the token straight off the "X-Share-Token" header.
+/// for the trip). Viewing/editing through a consumed link isn't handled here at all — see
+/// ShareLinkAuthHandler, which reads the token straight off the "X-Share-Token" header, and
+/// TripsController.GetShared, which resolves the trip it points at. Claim (below) is the other
+/// half of consuming a link: turning it into durable access for a signed-in visitor.
 /// </summary>
 [ApiController]
 [Authorize]
@@ -21,17 +23,26 @@ namespace TravelPlan.Api.Controllers;
 public class TripShareLinksController : ControllerBase
 {
     private readonly ITripShareLinkRepository _shareLinks;
+    private readonly ITripCollaboratorRepository _collaborators;
     private readonly ITripAccessService _tripAccess;
+    private readonly ICurrentUserService _currentUser;
     private readonly IValidator<CreateTripShareLinkDto> _createValidator;
+    private readonly IValidator<ClaimTripShareLinkDto> _claimValidator;
 
     public TripShareLinksController(
         ITripShareLinkRepository shareLinks,
+        ITripCollaboratorRepository collaborators,
         ITripAccessService tripAccess,
-        IValidator<CreateTripShareLinkDto> createValidator)
+        ICurrentUserService currentUser,
+        IValidator<CreateTripShareLinkDto> createValidator,
+        IValidator<ClaimTripShareLinkDto> claimValidator)
     {
         _shareLinks = shareLinks;
+        _collaborators = collaborators;
         _tripAccess = tripAccess;
+        _currentUser = currentUser;
         _createValidator = createValidator;
+        _claimValidator = claimValidator;
     }
 
     [HttpGet]
@@ -74,6 +85,68 @@ public class TripShareLinksController : ControllerBase
         await _shareLinks.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(List), new { tripId = dto.TripId }, ToDto(link));
+    }
+
+    /// <summary>
+    /// Turns a share link into durable, accepted TripCollaborator access for the caller — the
+    /// path from "I opened someone's link" to "this trip is in my account now". Must be called
+    /// with a normal JWT (not the "X-Share-Token" header, which would authenticate as the
+    /// anonymous link identity instead and leave _currentUser.UserId null). Idempotent: an owner
+    /// or existing collaborator with equal-or-higher role is left alone; a lower-role collaborator
+    /// is upgraded to the link's role.
+    /// </summary>
+    [HttpPost("claim")]
+    public async Task<ActionResult<ClaimTripShareLinkResultDto>> Claim(ClaimTripShareLinkDto dto, CancellationToken cancellationToken)
+    {
+        var validation = await _claimValidator.ValidateAsync(dto, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return ValidationProblemFor(validation);
+        }
+
+        if (_currentUser.UserId is not { } userId)
+        {
+            return Unauthorized();
+        }
+
+        var link = await _shareLinks.GetByTokenAsync(dto.Token, cancellationToken);
+        if (link is null || (link.ExpiresAt is { } expiresAt && expiresAt <= DateTime.UtcNow))
+        {
+            return NotFound();
+        }
+
+        if (await _tripAccess.IsOwnerAsync(link.TripId, cancellationToken))
+        {
+            return Ok(new ClaimTripShareLinkResultDto(link.TripId, true, null));
+        }
+
+        var existing = await _collaborators.FindAsync(link.TripId, userId, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.Role < link.Role)
+            {
+                existing.Role = link.Role;
+            }
+
+            existing.AcceptedAt ??= DateTime.UtcNow;
+            await _collaborators.SaveChangesAsync(cancellationToken);
+            return Ok(new ClaimTripShareLinkResultDto(link.TripId, false, existing.Role));
+        }
+
+        var now = DateTime.UtcNow;
+        var collaborator = new TripCollaborator
+        {
+            TripId = link.TripId,
+            UserId = userId,
+            Role = link.Role,
+            InvitedAt = now,
+            AcceptedAt = now,
+        };
+
+        await _collaborators.AddAsync(collaborator, cancellationToken);
+        await _collaborators.SaveChangesAsync(cancellationToken);
+
+        return Ok(new ClaimTripShareLinkResultDto(link.TripId, false, link.Role));
     }
 
     [HttpDelete("{id:int}")]

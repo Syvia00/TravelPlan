@@ -33,6 +33,12 @@ builder.Services.AddHttpClient("TravelPlan.Api", client => client.BaseAddress = 
     });
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("TravelPlan.Api"));
 
+// A second, unauthenticated named client for share-link visitors — Pages/SharedTrip.razor builds
+// its own ApiClient instances against this one (with the token set as a default "X-Share-Token"
+// header) instead of using the DI-registered ApiClients above, which always go through
+// AuthorizationMessageHandler and would force an anonymous visitor into an MSAL login redirect.
+builder.Services.AddHttpClient("TravelPlan.Api.Shared", client => client.BaseAddress = new Uri(apiBaseUrl));
+
 builder.Services.AddScoped<TripsApiClient>();
 builder.Services.AddScoped<PlanItemsApiClient>();
 builder.Services.AddScoped<BudgetItemsApiClient>();

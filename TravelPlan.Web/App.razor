@@ -3,13 +3,22 @@
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(App).Assembly" NotFoundPage="typeof(Pages.NotFound)">
         <Found Context="routeData">
-            @* The authentication callback route must render unconditionally, even while
-               logged out — it's the page MSAL redirects back to mid-login. Everything else is
-               gated: authenticated visitors get the open-book shell, everyone else gets the
-               closed-book landing page instead of the routed page. *@
+            @* The authentication callback route and the anonymous share-link landing page must
+               render unconditionally, even while logged out — the former is where MSAL redirects
+               back to mid-login, the latter is the whole point of a share link (no account
+               needed). Both still render inside MainLayout so a signed-in visitor sees the usual
+               book chrome; SharedTrip.razor itself decides what an anonymous visitor sees.
+               Everything else is gated: authenticated visitors get the open-book shell, everyone
+               else gets the closed-book landing page instead of the routed page. *@
             @if (routeData.PageType == typeof(Pages.Authentication))
             {
                 <PageTurnHost RouteData="@routeData" />
+            }
+            else if (routeData.PageType == typeof(Pages.SharedTrip))
+            {
+                <MainLayout>
+                    <PageTurnHost RouteData="@routeData" />
+                </MainLayout>
             }
             else
             {
