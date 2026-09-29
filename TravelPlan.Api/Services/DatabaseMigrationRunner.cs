@@ -71,11 +71,32 @@ public static class DatabaseMigrationRunner
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(DatabaseMigrationRunner).FullName!);
 
-        await RunWithRetryAsync(
-            db.Database.MigrateAsync,
-            ex => ex is SqlException sqlEx && TransientErrorNumbers.Contains(sqlEx.Number),
-            logger,
-            cancellationToken);
+        await RunWithRetryAsync(db.Database.MigrateAsync, IsTransientSqlException, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Real production incident (2026-09-29 08:46 UTC, first deploy of this retry logic): the
+    /// exception MigrateAsync actually throws for a 40613 is NOT a bare SqlException — EF Core's
+    /// SqlServerExecutionStrategy (the default, non-retrying one, since TravelPlanSqlServerDbContext
+    /// never calls EnableRetryOnFailure) detects the transient SqlException itself and wraps it in
+    /// an InvalidOperationException ("...consider enabling transient error resiliency by adding
+    /// 'EnableRetryOnFailure'...") with the real SqlException as InnerException. An `ex is
+    /// SqlException` check alone never matches that wrapper, so the very first version of this
+    /// method treated a genuinely transient 40613 as non-transient and gave up after attempt 1 —
+    /// caught live in production, not in a test, because there was no test yet covering the actual
+    /// wrapped shape EF produces. Walking the InnerException chain is what actually catches it.
+    /// </summary>
+    internal static bool IsTransientSqlException(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException sqlEx && TransientErrorNumbers.Contains(sqlEx.Number))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static async Task RunWithRetryAsync(
