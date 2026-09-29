@@ -22,7 +22,7 @@ public class TripAccessService : ITripAccessService
         // ShareLinkAuthHandler authenticated the request.
         if (_currentUser.ShareLinkTripId is { } linkTripId)
         {
-            return linkTripId == tripId && _currentUser.ShareLinkRole is { } linkRole && linkRole >= minimumRole;
+            return linkTripId == tripId && _currentUser.ShareLinkRole is { } linkRole && linkRole.SatisfiesMinimum(minimumRole);
         }
 
         if (_currentUser.UserId is not { } userId)
@@ -30,12 +30,12 @@ public class TripAccessService : ITripAccessService
             return false;
         }
 
-        // TripCollaborator.Role is stored as text (HasConversion<string>() — see
-        // TripCollaboratorConfiguration), so "c.Role >= minimumRole" inside the query below would
-        // get translated into a SQL string comparison, not a numeric one: alphabetically "Editor"
-        // < "Viewer", the opposite of their intended privilege order. Project the raw role out
-        // first (same shape as GetAccessInfoAsync below, which gets this right already) and do the
-        // >= comparison in memory instead, after EF has converted it back to the enum.
+        // Project the raw role out (same shape as GetAccessInfoAsync below) and compare via
+        // SatisfiesMinimum in memory, after EF has converted it back to the enum — not inside the
+        // query below, where a comparison operator would get translated straight into SQL. Role is
+        // stored as int (see TripCollaboratorConfiguration), so that would be numerically correct
+        // today, but keeping the comparison in memory means it stays correct even if the storage
+        // representation ever changes again, instead of depending on remembering why it matters.
         var trip = await _context.Trips
             .Where(t => t.Id == tripId)
             .Select(t => new
@@ -53,7 +53,7 @@ public class TripAccessService : ITripAccessService
             return false;
         }
 
-        return trip.UserId == userId || (trip.CollaboratorRole is { } role && role >= minimumRole);
+        return trip.UserId == userId || (trip.CollaboratorRole is { } role && role.SatisfiesMinimum(minimumRole));
     }
 
     public async Task<bool> IsOwnerAsync(int tripId, CancellationToken cancellationToken = default)

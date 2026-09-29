@@ -6,6 +6,7 @@ using TravelPlan.Api.Repositories;
 using TravelPlan.Api.Services;
 using TravelPlan.Shared.DTOs.TripShareLinks;
 using TravelPlan.Shared.Models;
+using TravelPlan.Shared.Models.Enums;
 
 namespace TravelPlan.Api.Controllers;
 
@@ -123,7 +124,7 @@ public class TripShareLinksController : ControllerBase
         var existing = await _collaborators.FindAsync(link.TripId, userId, cancellationToken);
         if (existing is not null)
         {
-            if (existing.Role < link.Role)
+            if (link.Role.IsHigherThan(existing.Role))
             {
                 existing.Role = link.Role;
             }
