@@ -74,3 +74,28 @@ jobs:
         env:
           TRAVELPLAN_SQLSERVER_DESIGNTIME_CONNECTION: "Server=tcp:localhost,1433;Initial Catalog=TravelPlanDbCi;User ID=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;"
         run: dotnet ef migrations has-pending-model-changes --context TravelPlanSqlServerDbContext
+
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # TravelPlan.Tests targets a real relational provider (SQLite, via an in-memory connection
+      # kept open for each test's lifetime — see TripAccessServiceTests) rather than EF Core's
+      # InMemory provider, specifically so a role comparison written inside a LINQ-to-Entities
+      # query still gets translated into and executed as real SQL. That's the only way these tests
+      # could have caught the Session 6.8 bug (a string-typed Role column made ">=" compare
+      # alphabetically instead of numerically) — confirmed by temporarily reintroducing that exact
+      # bug locally and watching two of these tests fail with precisely the expected mismatches
+      # before this workflow step was added. No service container needed: unlike the SQL Server
+      # migration checks above, SQLite here needs nothing running alongside the job.
+      - name: Restore
+        run: dotnet restore TravelPlan.Tests/TravelPlan.Tests.csproj
+
+      - name: Test
+        run: dotnet test TravelPlan.Tests/TravelPlan.Tests.csproj --no-restore
