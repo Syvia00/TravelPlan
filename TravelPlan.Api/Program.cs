@@ -161,9 +161,14 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<TravelPlanDbContext>();
-    db.Database.Migrate();
+    // Deliberately *not* awaited here, and not run via an IHostedService.StartAsync either — both
+    // of those are on the host's own startup path, which Azure's container-startup probe against
+    // /health is racing against. Registering on ApplicationStarted instead means this only begins
+    // once Kestrel is already bound and listening, so that probe succeeds immediately regardless
+    // of whether the database happens to be paused — see DatabaseMigrationRunner for the full story
+    // (a real production outage) this replaced.
+    app.Lifetime.ApplicationStarted.Register(() =>
+        _ = DatabaseMigrationRunner.MigrateWithRetryAsync(app.Services, app.Lifetime.ApplicationStopping));
 
     app.UseSwagger();
     app.UseSwaggerUI();

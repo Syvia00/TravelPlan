@@ -24,4 +24,11 @@
     <ProjectReference Include="..\TravelPlan.Shared\TravelPlan.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- DatabaseMigrationRunner.RunWithRetryAsync is internal — it's the retry-loop core, kept
+         out of the public API, but TravelPlan.Tests needs to call it directly to exercise the
+         retry-then-succeed and retry-until-exhausted paths without a real Azure SQL database. -->
+    <InternalsVisibleTo Include="TravelPlan.Tests" />
+  </ItemGroup>
+
 </Project>
