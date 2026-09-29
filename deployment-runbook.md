@@ -311,6 +311,19 @@ API_URL="https://${API_APP}.azurewebsites.net"
 echo "$API_URL"
 ```
 
+### Deploying code updates
+
+`scripts/deploy-api.sh` publishes and deploys the API — `RG`/`API_APP` env vars override the
+defaults if this isn't the original resource group/app name. It always publishes with
+`-r linux-x64 --self-contained false`; do not run a bare `dotnet publish -c Release` for a real
+deploy — see the comment at the top of that script for why (a 633MB portable publish, mostly
+Windows-only debug symbols that can never run on this Linux App Service, versus ~70MB framework-
+dependent for the actual target).
+
+```bash
+./scripts/deploy-api.sh
+```
+
 ---
 
 ## 9. Static Web App — Blazor frontend
