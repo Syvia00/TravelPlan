@@ -140,6 +140,29 @@ In the External ID tenant (switch directory to the new tenant first):
    - Scope name: `access_as_user`
    - Admin consent display name: `Access TravelPlan API`
    - State: Enabled
+4. **Token configuration** → **Add optional claim** → Token type **Access** → check **email** → **Add**
+   (accept the "Turn on the Microsoft Graph email, profile permission" prompt if shown)
+
+   **Required** — do not skip this step, even though nothing in the app's own configuration
+   depends on it looking done. By default, an Entra External ID access token issued for a custom
+   API scope carries `name` (from basic profile) but **not** `email`/`emails`, regardless of sign-in
+   method — this was directly confirmed in production (2026-09-30) by decoding a real access token:
+   `{"name":"Harrison Zhou", ...}` with no email claim anywhere on it. UserSyncMiddleware's whole
+   email-invite-claiming path (`ClaimTypes.Email` sourced from that claim, in `Program.cs`) silently
+   depends on this claim existing; without it, every first-time sign-in creates a new User row with
+   a null Email, and can never claim a pending invite placeholder (TripCollaboratorsController) —
+   the invited person always lands as a disconnected second account instead of the intended
+   collaborator, no matter how correct the matching code itself is. See UserSyncMiddleware.cs's own
+   doc comment for the full incident writeup.
+
+   This is a token-configuration setting on the app registration, not something `dotnet` or `az`
+   can exercise or verify — confirm it 's actually in effect by decoding a *fresh* access token (old
+   cached ones issued before the change won't have picked it up) and checking for a
+   `"email": "..."` claim, e.g. from a browser console already signed in to the app:
+   ```js
+   const k = Object.keys(sessionStorage).find(k => k.includes('accesstoken'));
+   JSON.parse(atob(JSON.parse(sessionStorage.getItem(k)).secret.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))
+   ```
 
 ### 4c. Register the Web (SPA) application
 
