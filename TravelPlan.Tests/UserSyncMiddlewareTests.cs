@@ -197,6 +197,96 @@ public class UserSyncMiddlewareTests : IDisposable
     }
 
     [Fact]
+    public async Task Backfilling_email_absorbs_a_conflicting_orphaned_placeholder_instead_of_throwing()
+    {
+        // Reproduces the exact production incident (2026-10-02): backfilling an already-known
+        // user's email collided with Users.Email's unique index because a leftover placeholder
+        // (created by an earlier invite of this same address, sent back when the real account still
+        // had no email on file to match against) already held it.
+        var owner = new User { DisplayName = "Owner", ExternalAuthId = "owner-ext-2", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var known = new User { Email = null, DisplayName = "New User", ExternalAuthId = "known-ext", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var orphan = new User { Email = "shared@example.com", DisplayName = "shared@example.com", ExternalAuthId = null, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        _context.Users.AddRange(owner, known, orphan);
+        var trip = new Trip
+        {
+            User = owner,
+            Title = "Trip",
+            Status = TripStatus.Draft,
+            StartDate = DateOnly.FromDateTime(DateTime.Today),
+            EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(1)),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        _context.Trips.Add(trip);
+        await _context.SaveChangesAsync();
+
+        var orphanInvite = new TripCollaborator
+        {
+            TripId = trip.Id,
+            UserId = orphan.Id,
+            Role = TripRole.Viewer,
+            InvitedAt = DateTime.UtcNow,
+            AcceptedAt = null,
+        };
+        _context.TripCollaborators.Add(orphanInvite);
+        await _context.SaveChangesAsync();
+
+        var currentUser = new CurrentUserService();
+
+        await HandleAsync(JwtPrincipal("known-ext", email: "shared@example.com", name: "Known Person"), currentUser);
+
+        Assert.Equal(2, await _context.Users.CountAsync()); // owner + known — orphan absorbed, not a third row.
+        Assert.False(await _context.Users.AnyAsync(u => u.Id == orphan.Id));
+
+        var reloadedKnown = await _context.Users.SingleAsync(u => u.Id == known.Id);
+        Assert.Equal("shared@example.com", reloadedKnown.Email);
+
+        var reloadedInvite = await _context.TripCollaborators.SingleAsync(c => c.Id == orphanInvite.Id);
+        Assert.Equal(known.Id, reloadedInvite.UserId);
+        Assert.NotNull(reloadedInvite.AcceptedAt);
+    }
+
+    [Fact]
+    public async Task Backfilling_email_drops_an_orphaned_invite_already_duplicated_on_the_real_account()
+    {
+        // The real account is already a collaborator on the same trip the orphan placeholder was
+        // also (separately) invited to — reassigning would collide with TripCollaborators'
+        // (TripId, UserId) unique index, so the now-redundant orphan invite is dropped instead.
+        var owner = new User { DisplayName = "Owner", ExternalAuthId = "owner-ext-3", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var known = new User { Email = null, DisplayName = "New User", ExternalAuthId = "known-ext-2", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var orphan = new User { Email = "dup@example.com", DisplayName = "dup@example.com", ExternalAuthId = null, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        _context.Users.AddRange(owner, known, orphan);
+        var trip = new Trip
+        {
+            User = owner,
+            Title = "Trip",
+            Status = TripStatus.Draft,
+            StartDate = DateOnly.FromDateTime(DateTime.Today),
+            EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(1)),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        _context.Trips.Add(trip);
+        await _context.SaveChangesAsync();
+
+        _context.TripCollaborators.AddRange(
+            new TripCollaborator { TripId = trip.Id, UserId = known.Id, Role = TripRole.Editor, InvitedAt = DateTime.UtcNow, AcceptedAt = DateTime.UtcNow },
+            new TripCollaborator { TripId = trip.Id, UserId = orphan.Id, Role = TripRole.Viewer, InvitedAt = DateTime.UtcNow, AcceptedAt = null });
+        await _context.SaveChangesAsync();
+
+        var currentUser = new CurrentUserService();
+
+        await HandleAsync(JwtPrincipal("known-ext-2", email: "dup@example.com", name: "Known Person"), currentUser);
+
+        Assert.False(await _context.Users.AnyAsync(u => u.Id == orphan.Id));
+
+        var remaining = await _context.TripCollaborators.Where(c => c.TripId == trip.Id).ToListAsync();
+        var single = Assert.Single(remaining);
+        Assert.Equal(known.Id, single.UserId);
+        Assert.Equal(TripRole.Editor, single.Role); // the real account's own pre-existing invite, untouched.
+    }
+
+    [Fact]
     public async Task Returning_user_with_a_known_email_is_not_blanked_by_a_token_missing_the_claim()
     {
         var user = new User

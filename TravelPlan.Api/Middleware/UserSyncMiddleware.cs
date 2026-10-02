@@ -103,7 +103,7 @@ public class UserSyncMiddleware
             // email claim (or before an Entra token-configuration gap was fixed — see this class's
             // doc comment) would otherwise keep a null Email forever, making them permanently
             // unmatchable by a future email invite even after the underlying gap is closed.
-            SyncProfileFromClaims(user, email, displayName, now);
+            await SyncProfileFromClaimsAsync(db, user, email, displayName, now);
             await db.SaveChangesAsync();
             currentUser.UserId = user.Id;
             return;
@@ -132,7 +132,7 @@ public class UserSyncMiddleware
             // Claiming a placeholder row created by an email invite (see
             // TripCollaboratorsController) — this is the moment "that email signs up".
             user.ExternalAuthId = externalAuthId;
-            SyncProfileFromClaims(user, email, displayName, now);
+            await SyncProfileFromClaimsAsync(db, user, email, displayName, now);
 
             var pendingInvites = await db.TripCollaborators
                 .Where(c => c.UserId == user.Id && c.AcceptedAt == null)
@@ -165,12 +165,13 @@ public class UserSyncMiddleware
     /// later token happens to omit the claim (e.g. an unrelated request shape, or a temporary IdP
     /// hiccup shouldn't erase a real email the row already earned).
     /// </summary>
-    private static void SyncProfileFromClaims(User user, string? email, string? displayName, DateTime now)
+    private static async Task SyncProfileFromClaimsAsync(TravelPlanDbContext db, User user, string? email, string? displayName, DateTime now)
     {
         var changed = false;
 
         if (string.IsNullOrEmpty(user.Email) && !string.IsNullOrEmpty(email))
         {
+            await AbsorbConflictingPlaceholderAsync(db, user, email, now);
             user.Email = email;
             changed = true;
         }
@@ -185,5 +186,50 @@ public class UserSyncMiddleware
         {
             user.UpdatedAt = now;
         }
+    }
+
+    /// <summary>
+    /// An already-known user backfilling an email for the first time can collide with Users.Email's
+    /// unique index if a leftover, never-claimed placeholder row already holds that exact address —
+    /// confirmed live in production (2026-10-02): backfilling Harrison's own account threw
+    /// "Cannot insert duplicate key row ... IX_Users_Email ... (harrisoniujd@gmail.com)" because an
+    /// earlier invite of his own address (sent back when his real account still had no email on
+    /// file, so it couldn't be matched to it) had created exactly such a placeholder. Absorbed the
+    /// same way a normal sign-in claims a placeholder: its still-pending invites move onto the real
+    /// account (or are dropped if the real account is already a collaborator on that trip — the
+    /// (TripId, UserId) unique index would otherwise reject the reassignment), then the now-fully-
+    /// redundant row is removed, rather than letting the Email write fail outright.
+    /// </summary>
+    private static async Task AbsorbConflictingPlaceholderAsync(TravelPlanDbContext db, User user, string email, DateTime now)
+    {
+        var conflicting = await db.Users.SingleOrDefaultAsync(u =>
+            u.Id != user.Id && u.ExternalAuthId == null && u.Email != null && u.Email.ToLower() == email.ToLower());
+
+        if (conflicting is null)
+        {
+            return;
+        }
+
+        var orphanedInvites = await db.TripCollaborators
+            .Where(c => c.UserId == conflicting.Id)
+            .ToListAsync();
+
+        foreach (var invite in orphanedInvites)
+        {
+            var alreadyCollaborating = await db.TripCollaborators
+                .AnyAsync(c => c.TripId == invite.TripId && c.UserId == user.Id);
+
+            if (alreadyCollaborating)
+            {
+                db.TripCollaborators.Remove(invite);
+            }
+            else
+            {
+                invite.UserId = user.Id;
+                invite.AcceptedAt ??= now;
+            }
+        }
+
+        db.Users.Remove(conflicting);
     }
 }
