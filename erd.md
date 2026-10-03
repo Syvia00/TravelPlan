@@ -128,7 +128,7 @@ erDiagram
         int         Id                PK
         nvarchar3   BaseCurrency
         nvarchar3   QuoteCurrency
-        decimal182  Rate
+        decimal186  Rate              "decimal(18,6), not (18,2) — see ExchangeRateConfiguration"
         datetime2   FetchedAt
     }
 
@@ -160,7 +160,10 @@ erDiagram
 ```
 
 `ExchangeRates` and `PhoneVerifications` are standalone caches — not tied to a trip
-or a specific user by foreign key.
+or a specific user by foreign key. `ExchangeRates` has a composite unique index on
+`(BaseCurrency, QuoteCurrency)` — one cached row per pair, upserted on each scheduled
+refresh (`ExchangeRateService`/`ExchangeRateRefreshBackgroundService`), not a growing
+history table.
 
 ---
 

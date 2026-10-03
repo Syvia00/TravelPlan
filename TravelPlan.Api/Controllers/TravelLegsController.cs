@@ -16,17 +16,20 @@ public class TravelLegsController : ControllerBase
 {
     private readonly ITravelLegRepository _travelLegs;
     private readonly ITripAccessService _tripAccess;
+    private readonly IMapsService _maps;
     private readonly IValidator<CreateTravelLegDto> _createValidator;
     private readonly IValidator<UpdateTravelLegDto> _updateValidator;
 
     public TravelLegsController(
         ITravelLegRepository travelLegs,
         ITripAccessService tripAccess,
+        IMapsService maps,
         IValidator<CreateTravelLegDto> createValidator,
         IValidator<UpdateTravelLegDto> updateValidator)
     {
         _travelLegs = travelLegs;
         _tripAccess = tripAccess;
+        _maps = maps;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
     }
@@ -53,6 +56,30 @@ public class TravelLegsController : ControllerBase
         }
 
         return Ok(ToDto(item));
+    }
+
+    /// <summary>
+    /// Optional static map thumbnail (TravelPlan-Project-Plan-v2.md §2) — geocodes
+    /// DepartureLocation/ArrivalLocation and renders both as pins. 404 covers both "leg doesn't
+    /// exist / no access" and "thumbnail unavailable" (no Maps key configured, or either location
+    /// couldn't be geocoded) identically, since the caller can't act differently on those anyway.
+    /// </summary>
+    [HttpGet("{id:int}/map")]
+    public async Task<IActionResult> GetMap(int id, CancellationToken cancellationToken)
+    {
+        var item = await _travelLegs.GetByIdAsync(id, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Viewer, cancellationToken))
+        {
+            return NotFound();
+        }
+
+        var thumbnail = await _maps.GetTravelLegMapThumbnailAsync(item.DepartureLocation, item.ArrivalLocation, cancellationToken);
+        if (thumbnail is null)
+        {
+            return NotFound();
+        }
+
+        return File(thumbnail, "image/png");
     }
 
     [HttpPost]

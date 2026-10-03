@@ -163,10 +163,13 @@ namespace TravelPlan.Api.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("Rate")
-                        .HasPrecision(18, 2)
+                        .HasPrecision(18, 6)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BaseCurrency", "QuoteCurrency")
+                        .IsUnique();
 
                     b.ToTable("ExchangeRates");
                 });

@@ -164,6 +164,25 @@ builder.Services.AddScoped<HtmlRenderer>();
 builder.Services.AddScoped<ITripCompletionService, TripCompletionService>();
 builder.Services.AddHostedService<TripCompletionBackgroundService>();
 
+// FX cache — ExchangeRateRefreshBackgroundService is the only thing that ever calls the provider;
+// ExchangeRatesController (and anything else injecting IExchangeRateService) only ever reads the
+// ExchangeRates table it keeps warm. ExchangeRateApi:BaseUrl defaults to the real Frankfurter host
+// (free, keyless — see README) so local dev needs no configuration for this to work.
+builder.Services.AddHttpClient<IExchangeRateService, ExchangeRateService>(client =>
+{
+    var baseUrl = builder.Configuration["ExchangeRateApi:BaseUrl"] ?? "https://api.frankfurter.dev";
+    client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+});
+builder.Services.AddHostedService<ExchangeRateRefreshBackgroundService>();
+
+// Maps — geocoding + static thumbnails. No DI-level config needed beyond the base address;
+// AzureMaps:SubscriptionKey is read per-call (see MapsService) so a missing key in Development
+// degrades to "feature unavailable" rather than failing DI/startup — see README.
+builder.Services.AddHttpClient<IMapsService, MapsService>(client =>
+{
+    client.BaseAddress = new Uri("https://atlas.microsoft.com/");
+});
+
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();

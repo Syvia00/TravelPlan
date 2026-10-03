@@ -394,11 +394,16 @@ az webapp config appsettings set \
     "AzureCommunicationServices__ConnectionString=${ACS_CONNECTION_STRING}" \
     "AzureMaps__SubscriptionKey=${MAPS_KEY}" \
     "ExchangeRateApi__BaseUrl=https://api.frankfurter.dev" \
-    "CompletionSweepIntervalMinutes=240"
+    "CompletionSweepIntervalMinutes=240" \
+    "ExchangeRateRefreshIntervalMinutes=60"
 ```
 
 `CompletionSweepIntervalMinutes` controls `TripCompletionBackgroundService`'s polling cadence —
-see the cost note under section 7 before lowering it.
+see the cost note under section 7 before lowering it. `ExchangeRateRefreshIntervalMinutes` controls
+`ExchangeRateRefreshBackgroundService`'s cadence; 60 is already far more frequent than Frankfurter's
+own rates actually change (once a day, weekdays), so it's mainly about how stale a cached rate can
+get after a cold start — raising it trades that staleness for fewer App Service wake-ups, same
+auto-pause trade-off as the completion sweep.
 
 ### Web — `wwwroot/appsettings.json`
 
