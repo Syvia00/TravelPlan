@@ -34,7 +34,20 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 if (useSqlServer)
 {
     builder.Services.AddDbContext<TravelPlanDbContext, TravelPlanSqlServerDbContext>(options =>
-        options.UseSqlServer(connectionString));
+        options.UseSqlServer(connectionString, sqlOptions =>
+            // Confirmed live (2026-10-03): an ordinary request (GET /api/trips/{id}) hit the
+            // database mid-auto-resume and failed after ~28s with SqlException -2 ("Connection
+            // Timeout Expired... Post-Login complete=28170") — a client-side timeout, not the
+            // 40613 "unavailable, retry" the startup migration path (DatabaseMigrationRunner)
+            // already retries on. EF's own SqlServerTransientExceptionDetector does NOT treat -2
+            // as transient by default (confirmed via reflection against the actual detector), so
+            // this is a real, previously-unguarded gap on every ordinary DB-touching request, not
+            // just at startup: EnableRetryOnFailure was never configured at all before this, and
+            // even once configured, -2 needs adding explicitly via errorNumbersToAdd — it's absent
+            // from EF's own default list. A second connection attempt after a short backoff is
+            // very likely to land on an already-resumed database, since Azure SQL serverless
+            // auto-resume typically completes well within a minute total.
+            sqlOptions.EnableRetryOnFailure(maxRetryCount: 2, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: [-2])));
 }
 else
 {
