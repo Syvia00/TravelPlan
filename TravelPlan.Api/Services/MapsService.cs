@@ -13,10 +13,12 @@ namespace TravelPlan.Api.Services;
 /// for this, and map thumbnails are requested far less often (per transport leg, on demand) than FX
 /// conversions (every budget screen render), so there's no equivalent pressure to avoid a live call.
 ///
-/// Note: built against Azure Maps' documented Geocode and Get Map Static Image REST shapes: this
-/// has NOT been exercised against a real subscription key (none was available while building it) —
-/// unlike the Frankfurter integration, which was verified live. Worth a real smoke test with a live
-/// AzureMaps:SubscriptionKey before relying on it.
+/// Confirmed live against a real AzureMaps:SubscriptionKey (2026-10-05) — including one genuine bug
+/// this caught: the static image call originally used `bbox` for auto-framing, which Azure Maps
+/// rejects outright in combination with `width`/`height` ("Bbox may not be used in conjunction with
+/// center and/or width and/or height") — confirmed via direct curl against the real API, not from
+/// documentation. Fixed by computing `center`+`zoom` ourselves (ComputeFitZoom, standard Web Mercator
+/// fit-bounds math) instead of delegating the framing to `bbox`.
 /// </summary>
 public class MapsService : IMapsService
 {
@@ -89,11 +91,18 @@ public class MapsService : IMapsService
             return null;
         }
 
-        var bbox = BuildBoundingBox(from, to);
+        const int width = 512;
+        const int height = 512;
+
+        var centerLon = (from.Longitude + to.Longitude) / 2;
+        var centerLat = (from.Latitude + to.Latitude) / 2;
+        var zoom = ComputeFitZoom(from, to, width, height);
+
         var pins = $"default||{Coord(from.Longitude)} {Coord(from.Latitude)}|{Coord(to.Longitude)} {Coord(to.Latitude)}";
         var url = $"map/static?api-version={StaticImageApiVersion}&subscription-key={key}" +
-                   $"&layer=basic&style=main&width=512&height=512" +
-                   $"&bbox={bbox}&pins={Uri.EscapeDataString(pins)}";
+                   $"&layer=basic&style=main&width={width}&height={height}" +
+                   $"&center={Coord(centerLon)},{Coord(centerLat)}&zoom={zoom}" +
+                   $"&pins={Uri.EscapeDataString(pins)}";
 
         try
         {
@@ -127,24 +136,36 @@ public class MapsService : IMapsService
         return key;
     }
 
-    // Pads a fixed-degree margin around both points rather than a percentage of their span, so two
-    // pins right next to each other (a short leg) still render a sensibly zoomed-out thumbnail
-    // instead of a near-zero-area bbox Azure Maps would reject or render unusably close-up.
-    private static string BuildBoundingBox((double Latitude, double Longitude) a, (double Latitude, double Longitude) b)
+    // Standard Web Mercator "fit bounds to viewport" zoom calculation (the same math underlying
+    // Leaflet's fitBounds/Mapbox's cameraForBounds) — Azure Maps' static image API does not do this
+    // itself: `bbox` (its only other framing option) can't be combined with `width`/`height` at all
+    // (confirmed directly against the API, see this class's doc comment), so there's no way to ask
+    // it for "pick whatever zoom fits this box" at a size we control. 256px tiles, doubling per zoom
+    // level, is Azure Maps' own tiling convention (matches Bing/Google) — confirmed by reproducing
+    // the exact zoom boundaries `bbox` mode reported (e.g. zoom 6 capping longitude span at
+    // 21.97265625°, exactly 64× zoom 12's reported 0.3433227539° cap) before this fix replaced bbox.
+    internal static int ComputeFitZoom((double Latitude, double Longitude) a, (double Latitude, double Longitude) b, int widthPx, int heightPx)
     {
-        const double minPadding = 0.5;
+        const double tileSize = 256;
+        const int maxZoom = 15;
+        const double paddingFactor = 0.8; // leaves ~10% margin on each side instead of pins flush against the edge.
 
-        var minLon = Math.Min(a.Longitude, b.Longitude);
-        var maxLon = Math.Max(a.Longitude, b.Longitude);
-        var minLat = Math.Min(a.Latitude, b.Latitude);
-        var maxLat = Math.Max(a.Latitude, b.Latitude);
+        var lonSpan = Math.Max(Math.Abs(a.Longitude - b.Longitude), 0.0001);
+        var zoomForLon = Math.Log2(widthPx * paddingFactor * 360 / (lonSpan * tileSize));
 
-        var lonPadding = Math.Max(minPadding, (maxLon - minLon) * 0.15);
-        var latPadding = Math.Max(minPadding, (maxLat - minLat) * 0.15);
+        var mercatorY1 = MercatorY(a.Latitude);
+        var mercatorY2 = MercatorY(b.Latitude);
+        var latSpanMercator = Math.Max(Math.Abs(mercatorY1 - mercatorY2), 0.0001);
+        var zoomForLat = Math.Log2(heightPx * paddingFactor * 2 * Math.PI / (latSpanMercator * tileSize));
 
-        return string.Join(',',
-            Coord(minLon - lonPadding), Coord(minLat - latPadding),
-            Coord(maxLon + lonPadding), Coord(maxLat + latPadding));
+        var zoom = (int)Math.Floor(Math.Min(zoomForLon, zoomForLat));
+        return Math.Clamp(zoom, 1, maxZoom);
+    }
+
+    private static double MercatorY(double latitudeDegrees)
+    {
+        var latRadians = latitudeDegrees * Math.PI / 180;
+        return Math.Log(Math.Tan(Math.PI / 4 + latRadians / 2));
     }
 
     private static string Coord(double value) => value.ToString("F6", CultureInfo.InvariantCulture);

@@ -113,6 +113,79 @@ public class MapsServiceTests
     }
 
     [Fact]
+    public async Task GetTravelLegMapThumbnailAsync_StaticImageRequest_UsesCenterAndZoomNotBbox()
+    {
+        // Confirmed directly against the real Azure Maps API (2026-10-05): `bbox` cannot be
+        // combined with `width`/`height` at all — "Bbox may not be used in conjunction with center
+        // and/or width and/or height" — so framing must come from a computed center+zoom instead.
+        var handler = new FakeHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            return path.StartsWith("/map/static")
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) }
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(GeocodeFoundResponse, Encoding.UTF8, "application/json"),
+                };
+        });
+        var service = Service(handler);
+
+        await service.GetTravelLegMapThumbnailAsync("Seattle, WA", "Dallas, TX");
+
+        var staticImageRequest = Assert.Single(handler.Requests, r => r.RequestUri!.AbsolutePath.StartsWith("/map/static"));
+        var query = staticImageRequest.RequestUri!.Query;
+        Assert.DoesNotContain("bbox=", query);
+        Assert.Contains("center=", query);
+        Assert.Contains("zoom=", query);
+        Assert.Contains("width=512", query);
+        Assert.Contains("height=512", query);
+    }
+
+    [Fact]
+    public void ComputeFitZoom_SeattleToDallas_MatchesTheZoomVerifiedAgainstTheRealApi()
+    {
+        // This exact case was used to find and fix the bbox bug: zoom 4 with this center was
+        // confirmed live (curl, 2026-10-05) to return a real 512x512 PNG from Azure Maps.
+        var seattle = (Latitude: 47.606200, Longitude: -122.332100);
+        var dallas = (Latitude: 32.776700, Longitude: -96.797000);
+
+        var zoom = MapsService.ComputeFitZoom(seattle, dallas, 512, 512);
+
+        Assert.Equal(4, zoom);
+    }
+
+    [Theory]
+    [InlineData(47.6062, -122.3321, 47.6062, -122.3321)] // identical points.
+    [InlineData(47.60620, -122.33210, 47.60621, -122.33211)] // near-identical (same city block).
+    public void ComputeFitZoom_NearZeroSpan_ClampsToMaxZoomRatherThanDivergingOrThrowing(
+        double lat1, double lon1, double lat2, double lon2)
+    {
+        var zoom = MapsService.ComputeFitZoom((lat1, lon1), (lat2, lon2), 512, 512);
+
+        Assert.Equal(15, zoom);
+    }
+
+    [Fact]
+    public void ComputeFitZoom_OppositeSidesOfTheGlobe_ClampsToMinZoomRatherThanGoingNegative()
+    {
+        var zoom = MapsService.ComputeFitZoom((0, -170), (0, 170), 512, 512);
+
+        Assert.Equal(1, zoom);
+    }
+
+    [Theory]
+    [InlineData(47.6062, -122.3321, 32.7767, -96.7970)]
+    [InlineData(0, -170, 0, 170)]
+    [InlineData(47.6062, -122.3321, 47.6062, -122.3321)]
+    [InlineData(-33.8688, 151.2093, 51.5074, -0.1278)] // Sydney to London — near-antipodal, large span.
+    public void ComputeFitZoom_AlwaysWithinAzureMapsSupportedRange(double lat1, double lon1, double lat2, double lon2)
+    {
+        var zoom = MapsService.ComputeFitZoom((lat1, lon1), (lat2, lon2), 512, 512);
+
+        Assert.InRange(zoom, 1, 15);
+    }
+
+    [Fact]
     public async Task GetTravelLegMapThumbnailAsync_OneEndFailsToGeocode_ReturnsNullAndNeverRequestsTheImage()
     {
         var handler = new FakeHttpMessageHandler(request =>
