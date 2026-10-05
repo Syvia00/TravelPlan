@@ -19,21 +19,4 @@ public class TravelLegsApiClient : ApiClientBase
 
     public Task DeleteAsync(int id, CancellationToken cancellationToken = default) =>
         DeleteAsync($"api/travel-legs/{id}", cancellationToken);
-
-    /// <summary>
-    /// Raw PNG bytes for the optional static map thumbnail (TravelPlan-Project-Plan-v2.md §2), or
-    /// null if unavailable — no Maps key configured, or either location couldn't be geocoded. Not
-    /// JSON, so this bypasses ApiClientBase's helpers rather than forcing a byte[] through them.
-    /// </summary>
-    public async Task<byte[]?> GetMapThumbnailAsync(int id, CancellationToken cancellationToken = default)
-    {
-        var response = await Http.GetAsync($"api/travel-legs/{id}/map", cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
-    }
 }

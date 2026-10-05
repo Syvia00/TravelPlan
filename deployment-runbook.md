@@ -254,6 +254,29 @@ az maps account keys list \
 
 Copy the primary key into `MAPS_KEY`.
 
+### Get Map Static Image — `bbox` cannot be combined with `width`/`height`
+
+Confirmed directly against the live API (not from documentation — the docs don't make this
+obvious): a static image request that passes `bbox` together with `width`/`height` (or `center`)
+is rejected outright —
+
+```json
+{"error":{"message":"1 errors occurred. More information provided in details.","details":[{"message":"Bbox may not be used in conjunction with center and/or width and/or height", ...}]}}
+```
+
+`bbox` alone (or `bbox`+`zoom`) is also **not** an auto-fit mechanism the way most static-map APIs
+behave: it validates the box against a zoom you must already have chosen (defaulting to 12 if
+`zoom` is omitted), rejecting boxes that don't match that zoom's implied viewport — it does not
+pick a zoom to fit an arbitrary box for you.
+
+`MapsService.GetTravelLegMapThumbnailAsync` therefore computes `center`+`zoom` itself
+(`ComputeFitZoom` — standard Web Mercator fit-bounds math, 256px tiles, same convention as
+Bing/Google) rather than using `bbox`, so both pins land inside a thumbnail of a size the app
+actually controls. If this API's behavior changes or a different endpoint shape is adopted later,
+re-verify directly against a real `AzureMaps:SubscriptionKey` with `curl` before trusting any
+assumption about `bbox` — this exact assumption was wrong once already (caught 2026-10-05 via a
+real smoke test, not by reading Microsoft's docs).
+
 ---
 
 ## 7. Azure SQL Database

@@ -114,32 +114,12 @@
                                     @leg.DepartureTime.ToString("MMM d, h:mm tt")
                                 </div>
                             </div>
-                            <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => ToggleMapAsync(leg.Id)">
-                                @(_mapLegId == leg.Id ? "Hide map" : "View map")
-                            </button>
                             @if (CanEdit)
                             {
                                 <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;" @onclick="() => _transportModal?.Open(leg)">Edit</button>
                                 <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteLegAsync(leg.Id)">🗙</button>
                             }
                         </div>
-                        @if (_mapLegId == leg.Id)
-                        {
-                            <div class="timeline-item" style="padding-top:0;">
-                                @if (_mapLoading)
-                                {
-                                    <p class="empty-day">Loading map…</p>
-                                }
-                                else if (_mapDataUrl is not null)
-                                {
-                                    <img src="@_mapDataUrl" alt="Map of @leg.DepartureLocation to @leg.ArrivalLocation" style="max-width:100%;border-radius:8px;" />
-                                }
-                                else
-                                {
-                                    <p class="empty-day">Map unavailable for this leg (no Azure Maps key configured, or a location couldn't be found).</p>
-                                }
-                            </div>
-                        }
                     }
                 </div>
             }
@@ -211,10 +191,6 @@
     private bool _deleting;
     private string? _deleteError;
 
-    private int? _mapLegId;
-    private bool _mapLoading;
-    private string? _mapDataUrl;
-
     /// <summary>Owner or Editor — Viewers see everything read-only.</summary>
     private bool CanEdit => _trip is { } t && (t.IsOwner || t.Role == TripRole.Editor);
 
@@ -236,25 +212,6 @@
     private async Task ReloadAccommodationsAsync() => _accommodations = await AccommodationsApi.ListByTripAsync(TripId);
 
     private async Task ReloadLegsAsync() => _travelLegs = await TravelLegsApi.ListByTripAsync(TripId);
-
-    private async Task ToggleMapAsync(int legId)
-    {
-        if (_mapLegId == legId)
-        {
-            _mapLegId = null;
-            _mapDataUrl = null;
-            return;
-        }
-
-        _mapLegId = legId;
-        _mapDataUrl = null;
-        _mapLoading = true;
-        StateHasChanged();
-
-        var bytes = await TravelLegsApi.GetMapThumbnailAsync(legId);
-        _mapDataUrl = bytes is null ? null : $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
-        _mapLoading = false;
-    }
 
     private async Task ReloadBudgetAsync() => _budgetItems = await BudgetApi.ListByTripAsync(TripId);
 
