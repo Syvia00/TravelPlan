@@ -48,3 +48,6 @@ client_secret_*.apps.googleusercontent.com.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Project docs — kept locally only, not published to GitHub
+docs/
