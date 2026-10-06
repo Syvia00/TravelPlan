@@ -8,9 +8,9 @@
 }
 
 @code {
-    /// <summary>How often the display re-derives itself. Cheap — one API call at most, only
-    /// while a trip is actively underway — so a short interval keeps "next stop in..." honest
-    /// without worrying about cost.</summary>
+    /// <summary>How often the display re-derives itself. In-memory only (see RecomputeLabel) — the
+    /// API is never called from the tick, only from RefreshAsync (initial load and whenever Trips
+    /// actually changes), so a short interval costs nothing extra.</summary>
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
 
     [Parameter]
@@ -24,17 +24,28 @@
     private bool _hasContent;
     private string _label = string.Empty;
 
+    // The fetched plan items for whichever trip is currently active, and which trip they're for —
+    // RecomputeLabel reads these instead of calling the API. Edits made elsewhere while this page
+    // stays open (the calendar's DayView, or another device) only show here after a reload, since
+    // nothing currently tells this component a plan item changed without a Trips-parameter change.
+    private List<PlanItemDto>? _activeTripPlanItems;
+    private int? _activeTripPlanItemsTripId;
+    private IReadOnlyList<TripDto>? _lastTrips;
+
     protected override async Task OnInitializedAsync()
     {
-        await RecomputeAsync();
+        await RefreshAsync();
         _timer = new Timer(OnTick, null, TickInterval, TickInterval);
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        if (!TripsLoading)
+        // OnParametersSetAsync fires on every parent re-render, not just when Trips actually
+        // changes (e.g. Home's mobile-tab switch passes the same list reference down again) — only
+        // refetch when it's genuinely a new list.
+        if (!TripsLoading && !ReferenceEquals(Trips, _lastTrips))
         {
-            await RecomputeAsync();
+            await RefreshAsync();
         }
     }
 
@@ -45,19 +56,50 @@
             return;
         }
 
-        _ = InvokeAsync(async () =>
+        _ = InvokeAsync(() =>
         {
-            if (_disposed)
+            if (!_disposed)
             {
-                return;
+                RecomputeLabel();
+                StateHasChanged();
             }
-
-            await RecomputeAsync();
-            StateHasChanged();
         });
     }
 
-    private async Task RecomputeAsync()
+    /// <summary>Fetches plan items for the active trip (if any) and recomputes the label. The only
+    /// place that calls the API — initial load and a real Trips change, never the tick.</summary>
+    private async Task RefreshAsync()
+    {
+        _lastTrips = Trips;
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var activeTrip = Trips.FirstOrDefault(t => t.StartDate <= today && today <= t.EndDate);
+
+        if (activeTrip is not null)
+        {
+            try
+            {
+                _activeTripPlanItems = await PlanItemsApi.ListByTripAsync(activeTrip.Id);
+            }
+            catch (ApiException)
+            {
+                _activeTripPlanItems = null; // Best-effort — RecomputeLabel falls through to the day-count summary.
+            }
+
+            _activeTripPlanItemsTripId = activeTrip.Id;
+        }
+        else
+        {
+            _activeTripPlanItems = null;
+            _activeTripPlanItemsTripId = null;
+        }
+
+        RecomputeLabel();
+    }
+
+    /// <summary>Pure in-memory — never calls the API. Reads Trips and the plan items RefreshAsync
+    /// already fetched; this is what the 30-second tick calls.</summary>
+    private void RecomputeLabel()
     {
         var now = DateTime.Now;
         var today = DateOnly.FromDateTime(now);
@@ -65,7 +107,7 @@
         var activeTrip = Trips.FirstOrDefault(t => t.StartDate <= today && today <= t.EndDate);
         if (activeTrip is not null)
         {
-            await RecomputeForActiveTripAsync(activeTrip, now, today);
+            RecomputeForActiveTrip(activeTrip, now, today);
             return;
         }
 
@@ -88,23 +130,18 @@
         _label = string.Empty;
     }
 
-    private async Task RecomputeForActiveTripAsync(TripDto trip, DateTime now, DateOnly today)
+    private void RecomputeForActiveTrip(TripDto trip, DateTime now, DateOnly today)
     {
         PlanItemDto? nextStop = null;
-        try
+        if (_activeTripPlanItemsTripId == trip.Id && _activeTripPlanItems is not null)
         {
-            var items = await PlanItemsApi.ListByTripAsync(trip.Id);
-            nextStop = items
+            nextStop = _activeTripPlanItems
                 .Where(i => i.Date is not null && i.Time is not null)
                 .Select(i => (Item: i, At: i.Date!.Value.ToDateTime(i.Time!.Value)))
                 .Where(x => x.At >= now)
                 .OrderBy(x => x.At)
                 .Select(x => x.Item)
                 .FirstOrDefault();
-        }
-        catch (ApiException)
-        {
-            // Best-effort — fall through to the day-count summary below.
         }
 
         if (nextStop is not null)
