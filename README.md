@@ -44,8 +44,9 @@ browser, a mobile device, or a shared link.
 | Git | any | — |
 | Visual Studio 2022 or Rider | — | optional but recommended |
 
-> **Microsoft Entra External ID** is required only for production. Local development
-> uses a dev-auth bypass (see [Environment configuration](#environment-configuration)).
+> **Microsoft Entra External ID** sign-in is required locally too — there is no
+> dev-auth bypass. The API and Web app registrations' settings are already checked
+> into source control, so no local-only auth setup is needed to run them.
 
 ---
 
@@ -98,7 +99,8 @@ cd TravelPlan
 
 ### 1. TravelPlan.Api
 
-The API uses **SQLite** in development — no database server required.
+The API uses **SQLite** in development — no database server required. `dotnet run`
+with no arguments uses the `https` launch profile (see `Properties/launchSettings.json`).
 
 ```bash
 cd TravelPlan.Api
@@ -114,11 +116,12 @@ dotnet run
 | Swagger UI | `https://localhost:7277/swagger` |
 | Health check | `https://localhost:7277/health` |
 
-**Dev-auth bypass**
+**Auth**
 
-In Development mode the API registers a `DevAuthHandler` that automatically
-authenticates every request as a fixed dev user — no Microsoft Entra External ID or
-Azure Communication Services credentials are needed locally.
+There is no dev-auth bypass. Every request is validated against the real
+Microsoft Entra External ID tenant — the same one production uses — regardless of
+environment. The `AzureAd` settings needed for this are already checked into
+`appsettings.json`, so no extra local configuration is required.
 
 ---
 
@@ -129,14 +132,19 @@ cd TravelPlan.Web
 dotnet run
 ```
 
+`dotnet run` with no arguments uses the `https` launch profile.
+
 **Default URLs**
 
 | Scheme | URL |
 |---|---|
 | HTTPS | `https://localhost:7156` (or similar — check terminal output) |
 
-In `DEBUG` builds the web app uses `DevAuthStateProvider`, which returns a
-pre-authenticated "Dev User" session without hitting Entra External ID.
+Signing in locally goes through the same real Entra External ID tenant as
+production via MSAL — there is no bypass. This only works because
+`https://localhost:7156/authentication/login-callback` is registered as a redirect
+URI on the Web app registration, alongside the production Static Web App URL; if
+sign-in ever fails with a redirect URI mismatch, check that registration.
 
 The API base URL is read from `wwwroot/appsettings.json`:
 
@@ -170,8 +178,10 @@ dotnet dev-certs https --trust
 
 **Auth**
 
-`AuthService.cs` uses MSAL against Entra External ID. For local testing, temporarily
-return a hard-coded bearer token from the dev API, or disable the auth header check.
+`AuthService.cs` uses MSAL against the same real Entra External ID tenant as the
+API and Web app — there is no bypass or hard-coded token for local testing. The
+mobile app registration's own redirect URI must be configured correctly for
+sign-in to complete.
 
 ---
 
