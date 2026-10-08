@@ -1,0 +1,116 @@
+@inject PlanItemPhotosApiClient PhotosApi
+
+@if (_photos.Count > 0 || CanEdit)
+{
+    <div class="photo-strip">
+        @foreach (var photo in _photos)
+        {
+            <div class="photo-thumb">
+                @if (_dataUrls.TryGetValue(photo.Name, out var url))
+                {
+                    <img src="@url" alt="" />
+                }
+                @if (CanEdit)
+                {
+                    <button type="button" class="photo-delete" title="Delete photo" @onclick="() => DeleteAsync(photo.Name)">🗙</button>
+                }
+            </div>
+        }
+        @if (CanEdit)
+        {
+            <label class="photo-add" title="Add photo">
+                +
+                <InputFile OnChange="OnFileSelectedAsync" accept="image/*" />
+            </label>
+        }
+    </div>
+    @if (_error is not null)
+    {
+        <p class="photo-error">@_error</p>
+    }
+}
+
+@code {
+    // Simple attachment, no scrapbook layout — a small thumbnail strip is all this needs.
+    private const long MaxSizeBytes = 5 * 1024 * 1024;
+
+    [Parameter, EditorRequired]
+    public int PlanItemId { get; set; }
+
+    [Parameter]
+    public bool CanEdit { get; set; }
+
+    private List<PlanItemPhotoDto> _photos = new();
+    private readonly Dictionary<string, string> _dataUrls = new();
+    private string? _error;
+    private int _loadedForPlanItemId = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedForPlanItemId != PlanItemId)
+        {
+            _loadedForPlanItemId = PlanItemId;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            _photos = await PhotosApi.ListAsync(PlanItemId);
+
+            _dataUrls.Clear();
+            foreach (var photo in _photos)
+            {
+                var bytes = await PhotosApi.DownloadAsync(PlanItemId, photo.Name);
+                _dataUrls[photo.Name] = $"data:{photo.ContentType};base64,{Convert.ToBase64String(bytes)}";
+            }
+        }
+        catch (ApiException)
+        {
+            _photos = new();
+        }
+    }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        var file = e.File;
+
+        if (file.Size > MaxSizeBytes)
+        {
+            _error = "Photos must be 5 MB or smaller.";
+            return;
+        }
+
+        try
+        {
+            using var stream = file.OpenReadStream(MaxSizeBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+
+            await PhotosApi.UploadAsync(PlanItemId, file.ContentType, buffer.ToArray());
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Errors.Count > 0 ? ex.Errors.SelectMany(kv => kv.Value).First() : ex.Message;
+        }
+    }
+
+    private async Task DeleteAsync(string photoName)
+    {
+        _error = null;
+        try
+        {
+            await PhotosApi.DeleteAsync(PlanItemId, photoName);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

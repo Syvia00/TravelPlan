@@ -20,8 +20,10 @@ public class TripsController : ControllerBase
     private readonly ITripAccessService _tripAccess;
     private readonly ITripCompletionService _completionService;
     private readonly ITripReportService _reportService;
+    private readonly IPhotoStorageService _photoStorage;
     private readonly IValidator<CreateTripDto> _createValidator;
     private readonly IValidator<UpdateTripDto> _updateValidator;
+    private readonly ILogger<TripsController> _logger;
 
     public TripsController(
         ITripRepository trips,
@@ -29,16 +31,20 @@ public class TripsController : ControllerBase
         ITripAccessService tripAccess,
         ITripCompletionService completionService,
         ITripReportService reportService,
+        IPhotoStorageService photoStorage,
         IValidator<CreateTripDto> createValidator,
-        IValidator<UpdateTripDto> updateValidator)
+        IValidator<UpdateTripDto> updateValidator,
+        ILogger<TripsController> logger)
     {
         _trips = trips;
         _currentUser = currentUser;
         _tripAccess = tripAccess;
         _completionService = completionService;
         _reportService = reportService;
+        _photoStorage = photoStorage;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -195,6 +201,18 @@ public class TripsController : ControllerBase
 
         _trips.Remove(trip);
         await _trips.SaveChangesAsync(cancellationToken);
+
+        // The database cascade doesn't reach Blob Storage — clean up every plan item's photos
+        // under this trip now that the row is confirmed gone. Best-effort, same reasoning as
+        // PlanItemsController.Delete.
+        try
+        {
+            await _photoStorage.DeleteAllForTripAsync(id, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete blob photos for deleted Trip {TripId}.", id);
+        }
 
         return NoContent();
     }

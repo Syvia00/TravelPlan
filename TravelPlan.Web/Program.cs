@@ -41,6 +41,7 @@ builder.Services.AddHttpClient("TravelPlan.Api.Shared", client => client.BaseAdd
 
 builder.Services.AddScoped<TripsApiClient>();
 builder.Services.AddScoped<PlanItemsApiClient>();
+builder.Services.AddScoped<PlanItemPhotosApiClient>();
 builder.Services.AddScoped<BudgetItemsApiClient>();
 builder.Services.AddScoped<AccommodationsApiClient>();
 builder.Services.AddScoped<TravelLegsApiClient>();

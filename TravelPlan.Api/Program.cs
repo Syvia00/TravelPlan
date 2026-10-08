@@ -183,6 +183,11 @@ builder.Services.AddHttpClient<IMapsService, MapsService>(client =>
     client.BaseAddress = new Uri("https://atlas.microsoft.com/");
 });
 
+// Trip photos — Blob Storage is the only source of truth (no database table); see
+// IPhotoStorageService. AzureStorage:ConnectionString is read per-call, not at DI time, so a
+// missing key fails the specific request rather than startup.
+builder.Services.AddScoped<IPhotoStorageService, PhotoStorageService>();
+
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();

@@ -49,6 +49,25 @@ public abstract class ApiClientBase
         }
     }
 
+    protected async Task<T> PostMultipartAsync<T>(string uri, HttpContent content, CancellationToken cancellationToken = default)
+    {
+        var response = await Http.PostAsync(uri, content, cancellationToken);
+        return await ReadOrThrowAsync<T>(response, cancellationToken);
+    }
+
+    /// <summary>For an endpoint that returns the resource's raw bytes (e.g. a photo) rather than
+    /// JSON — see PlanItemPhotosApiClient.DownloadAsync.</summary>
+    protected async Task<byte[]> GetBytesAsync(string uri, CancellationToken cancellationToken = default)
+    {
+        var response = await Http.GetAsync(uri, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await BuildExceptionAsync(response, cancellationToken);
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    }
+
     private static async Task<T> ReadOrThrowAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (!response.IsSuccessStatusCode)

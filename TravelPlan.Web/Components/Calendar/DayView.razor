@@ -27,9 +27,12 @@ else
             {
                 @foreach (var item in _backlog)
                 {
-                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
-                        <span class="timeline-title" style="flex:1;">@item.Title</span>
-                        <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
+                    <div class="plan-item-block">
+                        <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
+                            <span class="timeline-title" style="flex:1;">@item.Title</span>
+                            <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
+                        </div>
+                        <PlanItemPhotos PlanItemId="item.Id" CanEdit="CanEdit" />
                     </div>
                 }
             }
@@ -51,9 +54,12 @@ else
             {
                 @foreach (var item in _unscheduled)
                 {
-                    <div class="timeline-item unscheduled draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
-                        <span class="timeline-title" style="flex:1;">@item.Title</span>
-                        <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
+                    <div class="plan-item-block">
+                        <div class="timeline-item unscheduled draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
+                            <span class="timeline-title" style="flex:1;">@item.Title</span>
+                            <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
+                        </div>
+                        <PlanItemPhotos PlanItemId="item.Id" CanEdit="CanEdit" />
                     </div>
                 }
             }
@@ -75,10 +81,13 @@ else
             {
                 @foreach (var item in _scheduled)
                 {
-                    <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
-                        <span class="timeline-time">@item.Time!.Value.ToString("h:mm tt")</span>
-                        <span class="timeline-title" style="flex:1;">@item.Title</span>
-                        <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
+                    <div class="plan-item-block">
+                        <div class="timeline-item draggable" draggable="true" @ondragstart="() => _draggedItemId = item.Id" @onclick="() => OpenEdit(item)">
+                            <span class="timeline-time">@item.Time!.Value.ToString("h:mm tt")</span>
+                            <span class="timeline-title" style="flex:1;">@item.Title</span>
+                            <button type="button" class="modal-close" title="Delete" @onclick="() => DeleteAsync(item.Id)" @onclick:stopPropagation="true">🗙</button>
+                        </div>
+                        <PlanItemPhotos PlanItemId="item.Id" CanEdit="CanEdit" />
                     </div>
                 }
             }
@@ -99,6 +108,7 @@ else
 
     private bool _loading = true;
     private TripDto? _coveringTrip;
+    private bool CanEdit => _coveringTrip is { } t && (t.IsOwner || t.Role == TripRole.Editor);
     private List<PlanItemDto> _backlog = new();
     private List<PlanItemDto> _scheduled = new();
     private List<PlanItemDto> _unscheduled = new();

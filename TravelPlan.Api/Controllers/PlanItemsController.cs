@@ -17,19 +17,25 @@ public class PlanItemsController : ControllerBase
 {
     private readonly IPlanItemRepository _planItems;
     private readonly ITripAccessService _tripAccess;
+    private readonly IPhotoStorageService _photoStorage;
     private readonly IValidator<CreatePlanItemDto> _createValidator;
     private readonly IValidator<UpdatePlanItemDto> _updateValidator;
+    private readonly ILogger<PlanItemsController> _logger;
 
     public PlanItemsController(
         IPlanItemRepository planItems,
         ITripAccessService tripAccess,
+        IPhotoStorageService photoStorage,
         IValidator<CreatePlanItemDto> createValidator,
-        IValidator<UpdatePlanItemDto> updateValidator)
+        IValidator<UpdatePlanItemDto> updateValidator,
+        ILogger<PlanItemsController> logger)
     {
         _planItems = planItems;
         _tripAccess = tripAccess;
+        _photoStorage = photoStorage;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -146,6 +152,18 @@ public class PlanItemsController : ControllerBase
 
         _planItems.Remove(item);
         await _planItems.SaveChangesAsync(cancellationToken);
+
+        // The database cascade doesn't reach Blob Storage — clean up this plan item's photos now
+        // that the row is confirmed gone. Best-effort: the row delete already succeeded, so a
+        // storage hiccup here shouldn't surface as a failed delete to the caller.
+        try
+        {
+            await _photoStorage.DeleteAllForPlanItemAsync(item.TripId, id, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete blob photos for deleted PlanItem {PlanItemId}.", id);
+        }
 
         return NoContent();
     }
