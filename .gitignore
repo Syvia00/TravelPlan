@@ -20,6 +20,7 @@ artifacts/
 .vscode/
 .claude/
 .secret/
+secret/
 
 # User-specific / local-only files
 *.rsuser
