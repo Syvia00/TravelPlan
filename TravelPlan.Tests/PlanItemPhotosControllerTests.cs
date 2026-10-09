@@ -63,9 +63,24 @@ public class PlanItemPhotosControllerTests : IDisposable
     };
 
     private PlanItemPhotosController Controller(int userId) =>
-        new(new PlanItemRepository(_context), new TripAccessService(_context, new CurrentUserService { UserId = userId }), _photoStorage);
+        new(new PlanItemRepository(_context), new TripAccessService(_context, new CurrentUserService { UserId = userId }), _photoStorage)
+        {
+            // Download sets a response header (X-Content-Type-Options) — ControllerBase.Response
+            // needs a real HttpContext behind it for that to work outside the normal MVC pipeline.
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
 
-    private static TestFormFile Jpeg(int sizeBytes = 100) => new(new byte[sizeBytes], "image/jpeg");
+    /// <summary>A byte array that actually starts with the JPEG magic bytes (FF D8 FF) — since
+    /// Upload now validates the file's real signature, not just its claimed Content-Type, a
+    /// zero-filled array would fail every "this upload should succeed" test.</summary>
+    private static TestFormFile Jpeg(int sizeBytes = 100)
+    {
+        var bytes = new byte[sizeBytes];
+        bytes[0] = 0xFF;
+        bytes[1] = 0xD8;
+        bytes[2] = 0xFF;
+        return new TestFormFile(bytes, "image/jpeg");
+    }
 
     [Fact]
     public async Task Upload_rejects_non_image_content_type()
@@ -244,6 +259,51 @@ public class PlanItemPhotosControllerTests : IDisposable
         var deleteResult = await editorController.Delete(item.Id, uploaded.Name, CancellationToken.None);
 
         Assert.IsType<NoContentResult>(deleteResult);
+    }
+
+    [Fact]
+    public async Task Upload_rejects_content_whose_bytes_dont_match_its_declared_type()
+    {
+        var owner = NewUser("Owner");
+        _context.Users.Add(owner);
+        var trip = NewTrip(owner);
+        _context.Trips.Add(trip);
+        var item = new PlanItem { Trip = trip, Title = "Museum", SortOrder = 0 };
+        _context.PlanItems.Add(item);
+        await _context.SaveChangesAsync();
+
+        // Plain text claiming to be a PNG — the Content-Type header alone would pass the earlier
+        // allow-list check, but the bytes don't start with the PNG signature.
+        var fakeImage = new TestFormFile(System.Text.Encoding.UTF8.GetBytes("<html><script>not an image</script></html>"), "image/png");
+
+        var controller = Controller(owner.Id);
+        var result = await controller.Upload(item.Id, fakeImage, CancellationToken.None);
+
+        Assert.IsType<ObjectResult>(result.Result);
+        Assert.False(controller.ModelState.IsValid);
+        Assert.True(controller.ModelState.ContainsKey("file"));
+        Assert.Empty(await _photoStorage.ListAsync(trip.Id, item.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Download_sets_nosniff_header()
+    {
+        var owner = NewUser("Owner");
+        _context.Users.Add(owner);
+        var trip = NewTrip(owner);
+        _context.Trips.Add(trip);
+        var item = new PlanItem { Trip = trip, Title = "Museum", SortOrder = 0 };
+        _context.PlanItems.Add(item);
+        await _context.SaveChangesAsync();
+
+        var controller = Controller(owner.Id);
+        var uploadResult = await controller.Upload(item.Id, Jpeg(), CancellationToken.None);
+        var uploaded = (PlanItemPhotoDto)Assert.IsType<OkObjectResult>(uploadResult.Result).Value!;
+
+        var downloadResult = await controller.Download(item.Id, uploaded.Name, CancellationToken.None);
+
+        Assert.IsType<FileStreamResult>(downloadResult);
+        Assert.Equal("nosniff", controller.Response.Headers["X-Content-Type-Options"].ToString());
     }
 
     /// <summary>Minimal IFormFile — exactly what the controller reads (Length, ContentType,

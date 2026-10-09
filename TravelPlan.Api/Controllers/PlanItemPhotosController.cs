@@ -54,6 +54,11 @@ public class PlanItemPhotosController : ControllerBase
             return NotFound();
         }
 
+        // The content-type here was validated against the file's actual bytes at upload time (see
+        // Upload below) — nosniff tells the browser to trust it exactly as given, rather than
+        // sniffing the body and potentially treating it as something else (e.g. HTML) if a browser's
+        // sniffing heuristic ever disagreed with our own validation.
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
         return File(content.Value.Content, content.Value.ContentType);
     }
 
@@ -84,8 +89,25 @@ public class PlanItemPhotosController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        await using var stream = file.OpenReadStream();
-        var photo = await _photoStorage.UploadAsync(item.TripId, planItemId, stream, file.ContentType, cancellationToken);
+        // Buffer the whole file (capped at 5 MB above, so this is bounded) rather than trusting the
+        // client's Content-Type header alone — that header is just request metadata the client
+        // controls. Checking the actual bytes against the format's magic-byte signature is what
+        // stops a client from labelling an arbitrary file "image/png" and having it stored and later
+        // served back under that content type (see PhotoContentTypes.HasValidSignature).
+        using var buffer = new MemoryStream();
+        await using (var stream = file.OpenReadStream())
+        {
+            await stream.CopyToAsync(buffer, cancellationToken);
+        }
+
+        if (!PhotoContentTypes.HasValidSignature(file.ContentType, buffer.GetBuffer().AsSpan(0, (int)buffer.Length)))
+        {
+            ModelState.AddModelError(nameof(file), "The file's contents don't match its declared image type.");
+            return ValidationProblem(ModelState);
+        }
+
+        buffer.Position = 0;
+        var photo = await _photoStorage.UploadAsync(item.TripId, planItemId, buffer, file.ContentType, cancellationToken);
         return Ok(photo);
     }
 
