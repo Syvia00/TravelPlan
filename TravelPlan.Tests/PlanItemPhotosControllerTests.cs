@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using SkiaSharp;
 using TravelPlan.Api.Controllers;
 using TravelPlan.Api.Data;
 using TravelPlan.Api.Repositories;
@@ -70,10 +71,22 @@ public class PlanItemPhotosControllerTests : IDisposable
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
 
-    /// <summary>A byte array that actually starts with the JPEG magic bytes (FF D8 FF) — since
-    /// Upload now validates the file's real signature, not just its claimed Content-Type, a
-    /// zero-filled array would fail every "this upload should succeed" test.</summary>
-    private static TestFormFile Jpeg(int sizeBytes = 100)
+    /// <summary>A genuinely decodable JPEG, not just bytes that start with the right magic number —
+    /// Upload now runs every upload through PhotoThumbnailGenerator (real SkiaSharp decode), so a
+    /// zero-filled array with a faked header would fail thumbnail generation and be rejected, same
+    /// as it would fail the signature check if it didn't have the header at all.</summary>
+    private static TestFormFile Jpeg()
+    {
+        using var bitmap = new SKBitmap(4, 4);
+        bitmap.Erase(SKColors.Red);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Jpeg, 90);
+        return new TestFormFile(data.ToArray(), "image/jpeg");
+    }
+
+    /// <summary>Not a real image — only used where the upload is expected to be rejected on size
+    /// alone, before any decode is attempted.</summary>
+    private static TestFormFile OversizeFakeJpeg(int sizeBytes)
     {
         var bytes = new byte[sizeBytes];
         bytes[0] = 0xFF;
@@ -112,7 +125,7 @@ public class PlanItemPhotosControllerTests : IDisposable
         _context.PlanItems.Add(item);
         await _context.SaveChangesAsync();
 
-        var oversizeFile = Jpeg((int)PhotoContentTypes.MaxSizeBytes + 1);
+        var oversizeFile = OversizeFakeJpeg((int)PhotoContentTypes.MaxSizeBytes + 1);
 
         var controller = Controller(owner.Id);
         var result = await controller.Upload(item.Id, oversizeFile, CancellationToken.None);
@@ -141,6 +154,29 @@ public class PlanItemPhotosControllerTests : IDisposable
         var listResult = await controller.List(item.Id, CancellationToken.None);
         var photos = Assert.IsType<OkObjectResult>(listResult.Result).Value as IEnumerable<PlanItemPhotoDto>;
         Assert.Contains(photos!, p => p.Name == uploaded!.Name);
+        Assert.True(_photoStorage.HasThumbnail(uploaded!.Name));
+    }
+
+    [Fact]
+    public async Task Delete_also_removes_the_thumbnail()
+    {
+        var owner = NewUser("Owner");
+        _context.Users.Add(owner);
+        var trip = NewTrip(owner);
+        _context.Trips.Add(trip);
+        var item = new PlanItem { Trip = trip, Title = "Museum", SortOrder = 0 };
+        _context.PlanItems.Add(item);
+        await _context.SaveChangesAsync();
+
+        var controller = Controller(owner.Id);
+        var uploadResult = await controller.Upload(item.Id, Jpeg(), CancellationToken.None);
+        var uploaded = (PlanItemPhotoDto)Assert.IsType<OkObjectResult>(uploadResult.Result).Value!;
+        Assert.True(_photoStorage.HasThumbnail(uploaded.Name));
+
+        var deleteResult = await controller.Delete(item.Id, uploaded.Name, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(deleteResult);
+        Assert.False(_photoStorage.HasThumbnail(uploaded.Name));
     }
 
     [Theory]
@@ -303,6 +339,29 @@ public class PlanItemPhotosControllerTests : IDisposable
         var downloadResult = await controller.Download(item.Id, uploaded.Name, CancellationToken.None);
 
         Assert.IsType<FileStreamResult>(downloadResult);
+        Assert.Equal("nosniff", controller.Response.Headers["X-Content-Type-Options"].ToString());
+    }
+
+    [Fact]
+    public async Task DownloadThumbnail_returns_the_generated_thumbnail_not_the_original()
+    {
+        var owner = NewUser("Owner");
+        _context.Users.Add(owner);
+        var trip = NewTrip(owner);
+        _context.Trips.Add(trip);
+        var item = new PlanItem { Trip = trip, Title = "Museum", SortOrder = 0 };
+        _context.PlanItems.Add(item);
+        await _context.SaveChangesAsync();
+
+        var controller = Controller(owner.Id);
+        var file = Jpeg();
+        var uploadResult = await controller.Upload(item.Id, file, CancellationToken.None);
+        var uploaded = (PlanItemPhotoDto)Assert.IsType<OkObjectResult>(uploadResult.Result).Value!;
+
+        var thumbResult = await controller.DownloadThumbnail(item.Id, uploaded.Name, CancellationToken.None);
+
+        var fileResult = Assert.IsType<FileStreamResult>(thumbResult);
+        Assert.Equal("image/jpeg", fileResult.ContentType);
         Assert.Equal("nosniff", controller.Response.Headers["X-Content-Type-Options"].ToString());
     }
 

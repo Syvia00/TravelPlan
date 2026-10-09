@@ -45,6 +45,17 @@ public class PhotoStorageService : IPhotoStorageService
         return new PlanItemPhotoDto(photoName, contentType, properties.Value.ContentLength, properties.Value.LastModified);
     }
 
+    public async Task UploadThumbnailAsync(int tripId, int planItemId, string photoName, byte[] content, CancellationToken cancellationToken = default)
+    {
+        var container = GetContainer();
+        await container.CreateIfNotExistsAsync(PublicAccessType.None, cancellationToken: cancellationToken);
+
+        var blobClient = container.GetBlobClient(ThumbPath(tripId, planItemId, photoName));
+        var headers = new BlobHttpHeaders { ContentType = "image/jpeg" };
+        using var stream = new MemoryStream(content);
+        await blobClient.UploadAsync(stream, new BlobUploadOptions { HttpHeaders = headers }, cancellationToken);
+    }
+
     public async Task<List<PlanItemPhotoDto>> ListAsync(int tripId, int planItemId, CancellationToken cancellationToken = default)
     {
         var container = GetContainer();
@@ -71,14 +82,20 @@ public class PhotoStorageService : IPhotoStorageService
         return results.OrderBy(p => p.UploadedAt).ToList();
     }
 
-    public async Task<PhotoContent?> DownloadAsync(int tripId, int planItemId, string photoName, CancellationToken cancellationToken = default)
+    public Task<PhotoContent?> DownloadAsync(int tripId, int planItemId, string photoName, CancellationToken cancellationToken = default) =>
+        DownloadBlobAsync(BlobPath(tripId, planItemId, photoName), photoName, cancellationToken);
+
+    public Task<PhotoContent?> DownloadThumbnailAsync(int tripId, int planItemId, string photoName, CancellationToken cancellationToken = default) =>
+        DownloadBlobAsync(ThumbPath(tripId, planItemId, photoName), photoName, cancellationToken);
+
+    private async Task<PhotoContent?> DownloadBlobAsync(string blobPath, string photoName, CancellationToken cancellationToken)
     {
         if (!IsSafePhotoName(photoName))
         {
             return null;
         }
 
-        var blobClient = GetContainer().GetBlobClient(BlobPath(tripId, planItemId, photoName));
+        var blobClient = GetContainer().GetBlobClient(blobPath);
         try
         {
             var download = await blobClient.DownloadStreamingAsync(cancellationToken: cancellationToken);
@@ -97,16 +114,21 @@ public class PhotoStorageService : IPhotoStorageService
             return false;
         }
 
-        var blobClient = GetContainer().GetBlobClient(BlobPath(tripId, planItemId, photoName));
-        var response = await blobClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
+        var container = GetContainer();
+        var response = await container.GetBlobClient(BlobPath(tripId, planItemId, photoName)).DeleteIfExistsAsync(cancellationToken: cancellationToken);
+        await container.GetBlobClient(ThumbPath(tripId, planItemId, photoName)).DeleteIfExistsAsync(cancellationToken: cancellationToken);
         return response.Value;
     }
 
     public Task DeleteAllForPlanItemAsync(int tripId, int planItemId, CancellationToken cancellationToken = default) =>
-        DeleteAllWithPrefixAsync(Prefix(tripId, planItemId), cancellationToken);
+        Task.WhenAll(
+            DeleteAllWithPrefixAsync(Prefix(tripId, planItemId), cancellationToken),
+            DeleteAllWithPrefixAsync(ThumbPrefix(tripId, planItemId), cancellationToken));
 
     public Task DeleteAllForTripAsync(int tripId, CancellationToken cancellationToken = default) =>
-        DeleteAllWithPrefixAsync($"{tripId}/", cancellationToken);
+        Task.WhenAll(
+            DeleteAllWithPrefixAsync($"{tripId}/", cancellationToken),
+            DeleteAllWithPrefixAsync($"thumbs/{tripId}/", cancellationToken));
 
     private async Task DeleteAllWithPrefixAsync(string prefix, CancellationToken cancellationToken)
     {
@@ -139,7 +161,11 @@ public class PhotoStorageService : IPhotoStorageService
 
     private static string Prefix(int tripId, int planItemId) => $"{tripId}/{planItemId}/";
 
+    private static string ThumbPrefix(int tripId, int planItemId) => $"thumbs/{Prefix(tripId, planItemId)}";
+
     private static string BlobPath(int tripId, int planItemId, string photoName) => $"{Prefix(tripId, planItemId)}{photoName}";
+
+    private static string ThumbPath(int tripId, int planItemId, string photoName) => $"{ThumbPrefix(tripId, planItemId)}{photoName}";
 
     // photoName is attacker-controlled (a route segment) and gets concatenated straight into a blob
     // path — this is what stops a crafted "../../other-trip/x.jpg"-style name from escaping the

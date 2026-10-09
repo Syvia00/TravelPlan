@@ -6,9 +6,9 @@
         @foreach (var photo in _photos)
         {
             <div class="photo-thumb">
-                @if (_dataUrls.TryGetValue(photo.Name, out var url))
+                @if (_thumbDataUrls.TryGetValue(photo.Name, out var url))
                 {
-                    <img src="@url" alt="" />
+                    <img src="@url" alt="" @onclick="() => OpenAsync(photo.Name)" />
                 }
                 @if (CanEdit)
                 {
@@ -30,6 +30,17 @@
     }
 }
 
+<Modal IsOpen="@_viewerOpen" IsOpenChanged="@(open => _viewerOpen = open)" Title="Photo">
+    @if (_viewerLoading)
+    {
+        <p class="empty-day">Loading…</p>
+    }
+    else if (_viewerDataUrl is not null)
+    {
+        <img src="@_viewerDataUrl" alt="" style="width:100%;border-radius:8px;display:block;" />
+    }
+</Modal>
+
 @code {
     // Simple attachment, no scrapbook layout — a small thumbnail strip is all this needs.
     private const long MaxSizeBytes = 5 * 1024 * 1024;
@@ -41,9 +52,18 @@
     public bool CanEdit { get; set; }
 
     private List<PlanItemPhotoDto> _photos = new();
-    private readonly Dictionary<string, string> _dataUrls = new();
+
+    // The day-view strip only ever loads thumbnails (small, generated once at upload time by the
+    // API — see PhotoThumbnailGenerator) — the full-size original is fetched on demand, only when
+    // a user opens a photo (see OpenAsync). Loaded in parallel (Task.WhenAll below), not one at a
+    // time, since each is a real round trip to Blob Storage.
+    private readonly Dictionary<string, string> _thumbDataUrls = new();
     private string? _error;
     private int _loadedForPlanItemId = -1;
+
+    private bool _viewerOpen;
+    private bool _viewerLoading;
+    private string? _viewerDataUrl;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -61,16 +81,46 @@
         {
             _photos = await PhotosApi.ListAsync(PlanItemId);
 
-            _dataUrls.Clear();
-            foreach (var photo in _photos)
+            var downloads = _photos.Select(async photo =>
             {
-                var bytes = await PhotosApi.DownloadAsync(PlanItemId, photo.Name);
-                _dataUrls[photo.Name] = $"data:{photo.ContentType};base64,{Convert.ToBase64String(bytes)}";
+                var bytes = await PhotosApi.DownloadThumbnailAsync(PlanItemId, photo.Name);
+                return (photo.Name, Url: $"data:image/jpeg;base64,{Convert.ToBase64String(bytes)}");
+            });
+            var results = await Task.WhenAll(downloads);
+
+            _thumbDataUrls.Clear();
+            foreach (var (name, url) in results)
+            {
+                _thumbDataUrls[name] = url;
             }
         }
         catch (ApiException)
         {
             _photos = new();
+        }
+    }
+
+    private async Task OpenAsync(string photoName)
+    {
+        _error = null;
+        _viewerOpen = true;
+        _viewerLoading = true;
+        _viewerDataUrl = null;
+
+        try
+        {
+            var bytes = await PhotosApi.DownloadAsync(PlanItemId, photoName);
+            var contentType = _photos.FirstOrDefault(p => p.Name == photoName)?.ContentType ?? "image/jpeg";
+            _viewerDataUrl = $"data:{contentType};base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch (ApiException ex)
+        {
+            _viewerOpen = false;
+            _error = ex.Message;
+        }
+        finally
+        {
+            _viewerLoading = false;
         }
     }
 

@@ -62,6 +62,27 @@ public class PlanItemPhotosController : ControllerBase
         return File(content.Value.Content, content.Value.ContentType);
     }
 
+    /// <summary>What the day-view strip actually loads — a small JPEG (see
+    /// PhotoThumbnailGenerator), generated once at upload time, not the full-size original.</summary>
+    [HttpGet("{photoName}/thumbnail")]
+    public async Task<IActionResult> DownloadThumbnail(int planItemId, string photoName, CancellationToken cancellationToken)
+    {
+        var item = await _planItems.GetByIdAsync(planItemId, cancellationToken);
+        if (item is null || !await _tripAccess.HasAccessAsync(item.TripId, TripRole.Viewer, cancellationToken))
+        {
+            return NotFound();
+        }
+
+        var content = await _photoStorage.DownloadThumbnailAsync(item.TripId, planItemId, photoName, cancellationToken);
+        if (content is null)
+        {
+            return NotFound();
+        }
+
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(content.Value.Content, content.Value.ContentType);
+    }
+
     [HttpPost]
     public async Task<ActionResult<PlanItemPhotoDto>> Upload(int planItemId, IFormFile? file, CancellationToken cancellationToken)
     {
@@ -100,14 +121,30 @@ public class PlanItemPhotosController : ControllerBase
             await stream.CopyToAsync(buffer, cancellationToken);
         }
 
-        if (!PhotoContentTypes.HasValidSignature(file.ContentType, buffer.GetBuffer().AsSpan(0, (int)buffer.Length)))
+        var bytes = buffer.ToArray();
+        if (!PhotoContentTypes.HasValidSignature(file.ContentType, bytes))
         {
             ModelState.AddModelError(nameof(file), "The file's contents don't match its declared image type.");
             return ValidationProblem(ModelState);
         }
 
-        buffer.Position = 0;
-        var photo = await _photoStorage.UploadAsync(item.TripId, planItemId, buffer, file.ContentType, cancellationToken);
+        var photo = await _photoStorage.UploadAsync(item.TripId, planItemId, new MemoryStream(bytes), file.ContentType, cancellationToken);
+
+        // The day-view strip only ever loads this thumbnail (see DownloadThumbnail above), not the
+        // original — if it can't be generated, the photo would be permanently unviewable there, so
+        // treat that as an upload failure rather than leaving an orphaned full-size blob behind.
+        try
+        {
+            var thumbnail = PhotoThumbnailGenerator.Generate(bytes);
+            await _photoStorage.UploadThumbnailAsync(item.TripId, planItemId, photo.Name, thumbnail, cancellationToken);
+        }
+        catch (Exception)
+        {
+            await _photoStorage.DeleteAsync(item.TripId, planItemId, photo.Name, cancellationToken);
+            ModelState.AddModelError(nameof(file), "The image could not be processed.");
+            return ValidationProblem(ModelState);
+        }
+
         return Ok(photo);
     }
 

@@ -91,8 +91,10 @@ public class TripsControllerPhotoCleanupTests : IDisposable
         _context.PlanItems.AddRange(itemA, itemB);
         await _context.SaveChangesAsync();
 
-        await _photoStorage.UploadAsync(trip.Id, itemA.Id, new MemoryStream(new byte[10]), "image/jpeg", CancellationToken.None);
-        await _photoStorage.UploadAsync(trip.Id, itemB.Id, new MemoryStream(new byte[10]), "image/png", CancellationToken.None);
+        var photoA = await _photoStorage.UploadAsync(trip.Id, itemA.Id, new MemoryStream(new byte[10]), "image/jpeg", CancellationToken.None);
+        await _photoStorage.UploadThumbnailAsync(trip.Id, itemA.Id, photoA.Name, new byte[5], CancellationToken.None);
+        var photoB = await _photoStorage.UploadAsync(trip.Id, itemB.Id, new MemoryStream(new byte[10]), "image/png", CancellationToken.None);
+        await _photoStorage.UploadThumbnailAsync(trip.Id, itemB.Id, photoB.Name, new byte[5], CancellationToken.None);
 
         var result = await Controller(owner.Id).Delete(trip.Id, CancellationToken.None);
 
@@ -100,6 +102,8 @@ public class TripsControllerPhotoCleanupTests : IDisposable
         Assert.Contains(trip.Id, _photoStorage.DeletedForTripCalls);
         Assert.Empty(await _photoStorage.ListAsync(trip.Id, itemA.Id, CancellationToken.None));
         Assert.Empty(await _photoStorage.ListAsync(trip.Id, itemB.Id, CancellationToken.None));
+        Assert.False(_photoStorage.HasThumbnail(photoA.Name));
+        Assert.False(_photoStorage.HasThumbnail(photoB.Name));
     }
 
     private sealed class NotUsedTripCompletionService : ITripCompletionService

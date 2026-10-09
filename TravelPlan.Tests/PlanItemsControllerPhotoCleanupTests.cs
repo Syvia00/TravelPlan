@@ -81,12 +81,14 @@ public class PlanItemsControllerPhotoCleanupTests : IDisposable
         _context.PlanItems.Add(item);
         await _context.SaveChangesAsync();
 
-        await _photoStorage.UploadAsync(trip.Id, item.Id, new MemoryStream(new byte[10]), "image/jpeg", CancellationToken.None);
+        var photo = await _photoStorage.UploadAsync(trip.Id, item.Id, new MemoryStream(new byte[10]), "image/jpeg", CancellationToken.None);
+        await _photoStorage.UploadThumbnailAsync(trip.Id, item.Id, photo.Name, new byte[5], CancellationToken.None);
 
         var result = await Controller(owner.Id).Delete(item.Id, CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
         Assert.Contains((trip.Id, item.Id), _photoStorage.DeletedForPlanItemCalls);
         Assert.Empty(await _photoStorage.ListAsync(trip.Id, item.Id, CancellationToken.None));
+        Assert.False(_photoStorage.HasThumbnail(photo.Name));
     }
 }

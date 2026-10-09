@@ -22,10 +22,16 @@ public class PlanItemPhotosApiClient : ApiClientBase
         return PostMultipartAsync<PlanItemPhotoDto>($"api/plan-items/{planItemId}/photos", form, cancellationToken);
     }
 
-    /// <summary>Fetches the raw bytes through the authenticated API client — never a direct blob
-    /// URL — so the caller can build a data: URL for an &lt;img&gt; tag.</summary>
+    /// <summary>Fetches the full-size original's raw bytes through the authenticated API client —
+    /// never a direct blob URL — so the caller can build a data: URL for an &lt;img&gt; tag. Only
+    /// called when a user opens a photo; the day-view strip itself uses DownloadThumbnailAsync.</summary>
     public Task<byte[]> DownloadAsync(int planItemId, string photoName, CancellationToken cancellationToken = default) =>
         GetBytesAsync($"api/plan-items/{planItemId}/photos/{photoName}", cancellationToken);
+
+    /// <summary>The small JPEG generated at upload time (see PhotoThumbnailGenerator) — what the
+    /// day-view strip actually loads.</summary>
+    public Task<byte[]> DownloadThumbnailAsync(int planItemId, string photoName, CancellationToken cancellationToken = default) =>
+        GetBytesAsync($"api/plan-items/{planItemId}/photos/{photoName}/thumbnail", cancellationToken);
 
     public Task DeleteAsync(int planItemId, string photoName, CancellationToken cancellationToken = default) =>
         DeleteAsync($"api/plan-items/{planItemId}/photos/{photoName}", cancellationToken);

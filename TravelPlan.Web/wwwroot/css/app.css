@@ -248,7 +248,7 @@ a { color: inherit; }
 .plan-item-block { display: flex; flex-direction: column; gap: 4px; }
 .photo-strip { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 0 4px; }
 .photo-thumb { position: relative; width: 48px; height: 48px; border-radius: 6px; overflow: hidden; background: #e7e2d2; }
-.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
 .photo-delete {
   position: absolute; top: 1px; right: 1px; width: 16px; height: 16px; line-height: 16px;
   font-size: 10px; border-radius: 50%; background: rgba(47,62,70,.65); color: #fff; border: none;
