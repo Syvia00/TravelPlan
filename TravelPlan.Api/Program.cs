@@ -184,9 +184,11 @@ builder.Services.AddHttpClient<IMapsService, MapsService>(client =>
 });
 
 // Trip photos — Blob Storage is the only source of truth (no database table); see
-// IPhotoStorageService. AzureStorage:ConnectionString is read per-call, not at DI time, so a
-// missing key fails the specific request rather than startup.
-builder.Services.AddScoped<IPhotoStorageService, PhotoStorageService>();
+// IPhotoStorageService. Singleton: BlobContainerClient is thread-safe and meant to be reused, not
+// built fresh per request — PhotoStorageService builds it lazily on first use (not here at DI
+// time), so a missing AzureStorage:ConnectionString still fails the first request that needs
+// storage rather than startup.
+builder.Services.AddSingleton<IPhotoStorageService, PhotoStorageService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));

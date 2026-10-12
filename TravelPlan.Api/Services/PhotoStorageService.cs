@@ -10,19 +10,24 @@ namespace TravelPlan.Api.Services;
 /// every call here is server-to-server, and photo bytes always flow back through
 /// PlanItemPhotosController (see IPhotoStorageService), never as a direct blob URL.
 ///
-/// The container is built fresh per call from configuration (not cached at DI-registration time),
-/// matching MapsService's pattern of reading its key per-call rather than failing DI/startup when
-/// AzureStorage:ConnectionString happens to be unset.
+/// Registered as a singleton (see Program.cs) — BlobContainerClient is thread-safe and meant to be
+/// reused, so the client is built once, the first time anything actually needs it, and cached for
+/// the life of the process rather than constructed fresh on every call. It's still built lazily
+/// (via Lazy&lt;T&gt;, not eagerly in the constructor) so a missing AzureStorage:ConnectionString
+/// fails the first real request that touches storage rather than failing DI/startup — matching
+/// MapsService's pattern of not failing startup over a Phase 2+ feature's config being unset. If
+/// building it fails, Lazy&lt;T&gt;'s default mode re-runs the factory on the next access rather
+/// than caching the exception, so fixing the setting doesn't require a restart.
 /// </summary>
 public class PhotoStorageService : IPhotoStorageService
 {
-    private readonly IConfiguration _configuration;
     private readonly ILogger<PhotoStorageService> _logger;
+    private readonly Lazy<BlobContainerClient> _container;
 
     public PhotoStorageService(IConfiguration configuration, ILogger<PhotoStorageService> logger)
     {
-        _configuration = configuration;
         _logger = logger;
+        _container = new Lazy<BlobContainerClient>(() => BuildContainer(configuration));
     }
 
     public async Task<PlanItemPhotoDto> UploadAsync(int tripId, int planItemId, Stream content, string contentType, CancellationToken cancellationToken = default)
@@ -146,16 +151,18 @@ public class PhotoStorageService : IPhotoStorageService
         }
     }
 
-    private BlobContainerClient GetContainer()
+    private BlobContainerClient GetContainer() => _container.Value;
+
+    private BlobContainerClient BuildContainer(IConfiguration configuration)
     {
-        var connectionString = _configuration["AzureStorage:ConnectionString"];
+        var connectionString = configuration["AzureStorage:ConnectionString"];
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             _logger.LogError("AzureStorage:ConnectionString is not configured — photo storage is unavailable.");
             throw new InvalidOperationException("AzureStorage:ConnectionString is not configured.");
         }
 
-        var containerName = _configuration["AzureStorage:ContainerName"] ?? "trip-photos";
+        var containerName = configuration["AzureStorage:ContainerName"] ?? "trip-photos";
         return new BlobContainerClient(connectionString, containerName);
     }
 

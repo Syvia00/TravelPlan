@@ -38,6 +38,17 @@ echo "Publish output: $PUBLISH_SIZE ($PUBLISH_DIR)"
 ZIP_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
 echo "Deploy package: $ZIP_SIZE ($ZIP_PATH)"
 
+# A stopped site never starts itself — az webapp deploy only copies files and then polls for the
+# site to come up, so deploying onto a Stopped app sits out its full wait and reports a false
+# "failed to start" (confirmed live, Session 7.5: the app had been Stopped for 3 unrelated days,
+# the deploy's own poll timed out at 20 minutes, and a plain `az webapp start` afterward brought it
+# up in under a minute). Starting it first avoids that every time, regardless of why it was stopped.
+APP_STATE=$(az webapp show --resource-group "$RG" --name "$API_APP" --query state -o tsv)
+if [ "$APP_STATE" = "Stopped" ]; then
+  echo "App Service was Stopped — starting it before deploying."
+  az webapp start --resource-group "$RG" --name "$API_APP"
+fi
+
 az webapp deploy \
   --resource-group "$RG" \
   --name           "$API_APP" \
