@@ -1,249 +1,188 @@
 # TravelPlan
 
-A full-stack travel planning application built with .NET 10. Plan trips, track
-budgets, log itineraries, and generate trip memory reports — accessible from a
-browser, a mobile device, or a shared link.
+A travel planning and memory app. Plan a trip on a calendar that zooms from a
+year down to a single day, track the budget in any currency, share the trip
+with the people you travel with, and keep an automatically generated summary
+of it when it ends.
+
+Built with .NET 10 (ASP.NET Core and Blazor WebAssembly) and deployed on
+Azure.
+
+Live demo: (add link)
 
 ---
 
-## Contents
+## Features
 
-- [Architecture overview](#architecture-overview)
-- [Prerequisites](#prerequisites)
-- [Project structure](#project-structure)
-- [Local setup](#local-setup)
-  - [1. TravelPlan.Api](#1-travelplanapi)
-  - [2. TravelPlan.Web](#2-travelplanweb)
-  - [3. TravelPlan.Mobile](#3-travelplanmobile)
-  - [4. TravelPlan.Tests](#4-travelplantests)
-- [Solution filters](#solution-filters)
-- [Environment configuration](#environment-configuration)
+- Trips as projects on a calendar that zooms from year to month, week and day
+- Plan items that move between an ideas backlog, a day, and a time slot by
+  drag and drop
+- A live countdown to the next trip or the next stop
+- Budget by category. The API can convert between currencies using exchange
+  rates cached daily from the Frankfurter API, but the web app doesn't call
+  that endpoint yet — budget totals shown in the app are not converted
+- Stays and transport legs, with static map thumbnails from Azure Maps
+- Sharing: invite people as Editor or Viewer, or share an anonymous link
+- Reports: an itinerary at any time, and a memory summary generated when the
+  trip ends, as PNG, PDF or a web page
+- Photos attached to plan items, with thumbnails
+- Sign-in with email or Google through Microsoft Entra External ID
+- A diary-style interface with page-turn transitions
 
----
-
-## Architecture overview
-
-| Layer | Technology | Hosts |
-|---|---|---|
-| REST API | ASP.NET Core 10, EF Core 10 | Azure App Service |
-| Web frontend | Blazor WebAssembly | Azure Static Web Apps |
-| Mobile app | .NET MAUI (iOS & Android) | Sideload / App Store |
-| Shared library | .NET 10 class library | Referenced by all |
-| Database | SQLite (dev) / Azure SQL (prod) | Azure SQL Database |
-| Auth | Microsoft Entra External ID (email + Google) + a custom phone-OTP flow via Azure Communication Services | Azure |
-| Reports | SkiaSharp (image/PDF) + a Razor HTML template — no external AI service | In-process |
+Planned: a .NET MAUI mobile app, phone-number sign-up, and quick capture of a
+plan item from a pasted link.
 
 ---
 
-## Prerequisites
+## Architecture
 
-| Tool | Minimum version | Notes |
-|---|---|---|
-| .NET SDK | 10.0 | `dotnet --version` |
-| .NET MAUI workload | 10.0 | `dotnet workload install maui` |
-| Git | any | — |
-| Visual Studio 2022 or Rider | — | optional but recommended |
+```mermaid
+flowchart LR
+    Browser["Blazor WebAssembly<br/>Azure Static Web Apps"] -->|"API calls with JWT"| Api["ASP.NET Core API<br/>Azure App Service"]
+    Browser -->|"sign in"| Entra["Microsoft Entra External ID"]
+    Api --> Sql[("Azure SQL Database")]
+    Api --> Blob[("Azure Blob Storage")]
+    Api --> Maps["Azure Maps"]
+    Api --> Fx["Frankfurter exchange rates"]
+```
 
-> **Microsoft Entra External ID** sign-in is required locally too — there is no
-> dev-auth bypass. The API and Web app registrations' settings are already checked
-> into source control, so no local-only auth setup is needed to run them.
+- The front end is static files served by Azure Static Web Apps. It runs in
+  the browser and signs users in with MSAL.
+- The API validates the token on every request, checks the user's access to
+  the trip, and is the only component that talks to the database, storage
+  and external services. Secrets stay on the server.
+- A shared class library holds the DTOs, models and validation rules used by
+  both the API and the front end.
+
+---
+
+## Tech stack
+
+- C# and .NET 10
+- ASP.NET Core Web API, Entity Framework Core
+- Blazor WebAssembly
+- SQLite for local development, Azure SQL Database in production
+- Microsoft Entra External ID (email and Google sign-in), JWT bearer auth
+- Azure App Service, Azure Static Web Apps, Azure Blob Storage, Azure Maps
+- SkiaSharp for images, PDFs and thumbnails
+- xUnit, GitHub Actions
+
+---
+
+## Engineering notes
+
+- **One access check.** A single service decides whether a request has
+  Viewer, Editor or Owner access to a trip, for named collaborators and
+  anonymous share links alike. Every endpoint goes through it.
+- **Race-free trip completion.** Completing a trip generates a report, and it
+  can be triggered from several places. An atomic conditional update in the
+  database ensures only one trigger wins, so only one report is ever
+  generated.
+- **One rendering pipeline.** A report is drawn once with SkiaSharp and output
+  as both PNG and PDF. A Razor template renders the same data as HTML.
+- **Two database providers.** SQLite locally and Azure SQL in production, with
+  a separate migration history for each, because each provider needs its own
+  column types. CI applies both, including against a real SQL Server.
+- **Cost-aware hosting.** The database runs on Azure's free serverless offer
+  and pauses when idle. Background jobs run daily and the UI does not poll,
+  so the database can actually stay paused.
 
 ---
 
 ## Project structure
 
 ```
-TravelPlan/
-├── TravelPlan.Shared/          # DTOs, domain models, FluentValidation validators
-│   ├── DTOs/                   # Request/response records grouped by domain
-│   └── Models/                 # EF entity classes + enums
-│
-├── TravelPlan.Api/             # ASP.NET Core 10 REST API
-│   ├── Controllers/            # MVC controllers (one per aggregate)
-│   ├── Data/                   # DbContext + EF Fluent-API configurations
-│   ├── Endpoints/              # Minimal-API endpoint groups
-│   ├── Middleware/             # UserSyncMiddleware
-│   ├── Repositories/           # IRepository + EF implementations
-│   └── Services/               # TripReportService (SkiaSharp), MapsService,
-│                                # ExchangeRateService, PhoneOtpService
-│
-├── TravelPlan.Web/             # Blazor WebAssembly frontend
-│   ├── Pages/                  # .razor page components (book/diary UI)
-│   ├── Layout/                 # MainLayout + NavMenu
-│   └── Services/               # API client, auth state provider
-│
-├── TravelPlan.Mobile/          # .NET MAUI iOS/Android app
-│   ├── Pages/                  # XAML content pages
-│   │   ├── Auth/               # LoginPage
-│   │   ├── Trips/              # TripList, TripDetail, TripForm, MemoryReport
-│   │   └── History/            # HistoryPage
-│   ├── ViewModels/             # MVVM view models (CommunityToolkit.Mvvm)
-│   ├── Services/               # AuthService (MSAL), ApiService (HttpClient)
-│   └── Converters/             # IValueConverter implementations
-│
-├── TravelPlan.Tests/           # xUnit unit tests (80 %+ coverage target)
-│
-├── TravelPlan.sln              # Full solution (all 5 projects)
-├── TravelPlan.CI.slnf          # CI solution filter (excludes Mobile)
-└── .github/workflows/          # GitHub Actions CI pipeline
+TravelPlan.Shared/     DTOs, models and validators shared by API and Web
+TravelPlan.Api/        REST API, EF Core, background services, reports, photos
+TravelPlan.Web/        Blazor WebAssembly front end
+TravelPlan.Tests/      xUnit tests (SQLite-backed)
+scripts/deploy-api.sh  API deployment script
+.github/workflows/     CI and Static Web Apps deployment
 ```
 
 ---
 
-## Local setup
+## Running locally
 
-```bash
-git clone https://github.com/<your-org>/TravelPlan.git
-cd TravelPlan
-```
+Prerequisites:
 
-### 1. TravelPlan.Api
+- .NET 10 SDK
+- Optional: an Azure Storage account (for photos) and an Azure Maps key (for
+  map thumbnails). Without them those two features alone are unavailable.
 
-The API uses **SQLite** in development — no database server required. `dotnet run`
-with no arguments uses the `https` launch profile (see `Properties/launchSettings.json`).
+Sign-in uses the same real Microsoft Entra External ID tenant as production —
+there is no development bypass — but no setup is needed for it: the API and
+web app registrations' settings are already checked into `appsettings.json`
+and `wwwroot/appsettings.json`, and the local redirect URI
+(`https://localhost:7156/authentication/login-callback`) is already
+registered on the web app registration.
 
-```bash
-cd TravelPlan.Api
-dotnet run
-```
+Steps:
 
-**Default URLs**
+1. Clone the repository.
+2. Trust the development certificate: `dotnet dev-certs https --trust`
+3. Start the API:
+   `cd TravelPlan.Api && dotnet run --launch-profile https`
+   (https://localhost:7277, Swagger at /swagger, health check at /health)
+4. Start the web app:
+   `cd TravelPlan.Web && dotnet run --launch-profile https`
+   (https://localhost:7156)
 
-| Scheme | URL |
-|---|---|
-| HTTP | `http://localhost:5280` |
-| HTTPS | `https://localhost:7277` |
-| Swagger UI | `https://localhost:7277/swagger` |
-| Health check | `https://localhost:7277/health` |
-
-**Auth**
-
-There is no dev-auth bypass. Every request is validated against the real
-Microsoft Entra External ID tenant — the same one production uses — regardless of
-environment. The `AzureAd` settings needed for this are already checked into
-`appsettings.json`, so no extra local configuration is required.
+Locally the API uses SQLite. The database file is created and migrated
+automatically.
 
 ---
 
-### 2. TravelPlan.Web
+## Tests
 
-```bash
-cd TravelPlan.Web
-dotnet run
 ```
-
-`dotnet run` with no arguments uses the `https` launch profile.
-
-**Default URLs**
-
-| Scheme | URL |
-|---|---|
-| HTTPS | `https://localhost:7156` (or similar — check terminal output) |
-
-Signing in locally goes through the same real Entra External ID tenant as
-production via MSAL — there is no bypass. This only works because
-`https://localhost:7156/authentication/login-callback` is registered as a redirect
-URI on the Web app registration, alongside the production Static Web App URL; if
-sign-in ever fails with a redirect URI mismatch, check that registration.
-
-The API base URL is read from `wwwroot/appsettings.json`:
-
-```json
-{
-  "ApiBaseUrl": "https://localhost:7277/"
-}
-```
-
----
-
-### 3. TravelPlan.Mobile
-
-```bash
-dotnet workload install maui
-
-cd TravelPlan.Mobile
-dotnet run -f net10.0-android
-dotnet run -f net10.0-ios   # macOS only
-```
-
-**API endpoint**
-
-Points to `https://travelplan-api.azurewebsites.net/` by default (`ApiService.cs`).
-For local development, change `BaseUrl` to `https://localhost:7277/` and trust the
-dev certificate:
-
-```bash
-dotnet dev-certs https --trust
-```
-
-**Auth**
-
-`AuthService.cs` uses MSAL against the same real Entra External ID tenant as the
-API and Web app — there is no bypass or hard-coded token for local testing. The
-mobile app registration's own redirect URI must be configured correctly for
-sign-in to complete.
-
----
-
-### 4. TravelPlan.Tests
-
-```bash
 cd TravelPlan.Tests
 dotnet test
 ```
 
-```bash
-dotnet test --collect:"XPlat Code Coverage"
-```
-
-Uses an **EF Core in-memory database** — no external services required.
+The tests run against SQLite rather than EF Core's in-memory provider, so
+database behaviour such as comparisons and constraints is actually exercised.
+CI also applies the migrations for both SQLite and SQL Server.
 
 ---
 
-## Solution filters
+## Configuration
 
-| Filter | Projects included | Use when |
-|---|---|---|
-| `TravelPlan.sln` | All 5 projects | Full local development |
-| `TravelPlan.CI.slnf` | Shared, Api, Web, Tests | CI pipeline (no MAUI workload needed) |
+API settings (user-secrets locally, App Service settings in production):
 
-```bash
-dotnet build TravelPlan.CI.slnf
-```
+- `DatabaseProvider` and `ConnectionStrings:DefaultConnection` — production
+  only; left unset locally, where SQLite is used automatically
+- `AzureAd:Instance`, `AzureAd:TenantId`, `AzureAd:ClientId` — already
+  checked into `appsettings.json`; there's no client secret to protect, since
+  this is just the API validating incoming tokens
+- `AzureStorage:ConnectionString` and `AzureStorage:ContainerName` — optional
+  locally; required for photos
+- `AzureMaps:SubscriptionKey` — optional locally; required for map thumbnails
+- `ExchangeRateApi:BaseUrl`
+- `CompletionSweepIntervalMinutes`, `ExchangeRateRefreshIntervalMinutes`
+
+Web settings (`TravelPlan.Web/wwwroot/appsettings.json`):
+
+- `ApiBaseUrl`
+- `AzureAd:Authority`, `AzureAd:ClientId`
+- `ApiScope` — a top-level setting, not nested under `AzureAd`
 
 ---
 
-## Environment configuration
+## Deployment
 
-### TravelPlan.Api — `appsettings.json`
+- The web app deploys automatically from GitHub through the Azure Static Web
+  Apps workflow.
+- The API deploys with `scripts/deploy-api.sh`, which publishes for Linux and
+  starts the App Service if it is stopped.
+- Database migrations are applied by the API after startup, with retry while
+  a paused database resumes.
 
-| Key | Description |
-|---|---|
-| `ConnectionStrings:DefaultConnection` | Azure SQL connection string (production only) |
-| `AzureAdExternalId:Instance` | External ID login endpoint, e.g. `https://<tenant>.ciamlogin.com` |
-| `AzureAdExternalId:ClientId` | API app registration client ID |
-| `AzureAdExternalId:Domain` | Tenant domain, e.g. `<tenant>.onmicrosoft.com` |
-| `AzureAdExternalId:SignUpSignInPolicyId` | User flow name |
-| `AzureAdExternalId:TenantId` | Tenant ID |
-| `AzureCommunicationServices:ConnectionString` | ACS connection string, for phone-OTP SMS |
-| `AzureMaps:SubscriptionKey` | Azure Maps key, for geocoding/static maps |
-| `ExchangeRateApi:BaseUrl` | FX rate provider base URL (Frankfurter — free, no key, no quota) |
+---
 
-> In Development the `DefaultConnection` key is ignored — SQLite is used
-> automatically, and the phone-OTP/Maps/FX settings are optional (those features
-> are Phase 2+, not required to run the core app locally).
+## How it was built
 
-### TravelPlan.Mobile — `AuthService.cs` constants
-
-| Constant | Description |
-|---|---|
-| `Tenant` | Entra External ID tenant, e.g. `<tenant>.onmicrosoft.com` |
-| `ClientId` | Native client app registration ID |
-| `SignInPolicy` | User flow name |
-| `Scope` | API scope URI |
-
-### GitHub Actions secrets
-
-| Secret | Description |
-|---|---|
-| *(none required for CI)* | The CI pipeline only builds and runs tests |
+Developed with Claude Code as an AI pair programmer. Work was split into
+scoped sessions driven by design documents, and changes were accepted only
+with evidence: tests that fail when the original bug is reintroduced, CI
+against both database providers, and live verification.
