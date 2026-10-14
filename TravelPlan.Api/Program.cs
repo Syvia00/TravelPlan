@@ -19,9 +19,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Data — provider choice is an explicit setting ("DatabaseProvider": "SqlServer"), not a
 // heuristic on whether ConnectionStrings:DefaultConnection happens to be non-empty: local dev
 // already puts the SQLite file path in that same key (appsettings.Development.json), so "is it
-// set" can't distinguish the two. Decoupled from ASPNETCORE_ENVIRONMENT too — Development still
-// selects Swagger/auto-migrate below even when pointed at the real Azure SQL database; auth
-// itself no longer depends on the environment (see the AzureAd/JwtBearer setup below).
+// set" can't distinguish the two. Decoupled from ASPNETCORE_ENVIRONMENT too — Development only
+// ever selects Swagger below (see further down), never the database provider; auth itself
+// doesn't depend on the environment either (see the AzureAd/JwtBearer setup below).
 //
 // Each provider gets its own DbContext subclass (TravelPlanSqliteDbContext /
 // TravelPlanSqlServerDbContext) with its own Migrations/<Provider> folder, because migrations bake
@@ -55,19 +55,18 @@ else
         options.UseSqlite(connectionString ?? "Data Source=travelplan.dev.db"));
 }
 
-// CORS — allows the Blazor WebAssembly dev server's origin to call this API. Production origins
-// (Azure Static Web Apps) get their own policy when the app is actually deployed in Phase 2.
+// CORS — allows both the Blazor WebAssembly dev server's origin and the deployed Azure Static
+// Web Apps origin to call this API. Registered in every environment: this was previously gated
+// behind IsDevelopment() by mistake. It happened to work in production anyway only because the
+// App Service's ASPNETCORE_ENVIRONMENT setting had been left at "Development" since Session 5.
 const string WebAppCorsPolicy = "WebApp";
-if (builder.Environment.IsDevelopment())
-{
-    builder.Services.AddCors(options => options.AddPolicy(WebAppCorsPolicy, policy =>
-        policy.WithOrigins(
-                "https://localhost:7156",
-                "http://localhost:5169",
-                "https://jolly-sand-066886f10.5.azurestaticapps.net")
-            .AllowAnyHeader()
-            .AllowAnyMethod()));
-}
+builder.Services.AddCors(options => options.AddPolicy(WebAppCorsPolicy, policy =>
+    policy.WithOrigins(
+            "https://localhost:7156",
+            "http://localhost:5169",
+            "https://jolly-sand-066886f10.5.azurestaticapps.net")
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
 
 // Auth — Entra External ID (CIAM) JWT bearer validation, or an anonymous share-link token (an
 // "X-Share-Token" header) as an alternative for a trip's Viewer/Editor share link — see
@@ -198,20 +197,23 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+// Deliberately *not* awaited here, and not run via an IHostedService.StartAsync either — both
+// of those are on the host's own startup path, which Azure's container-startup probe against
+// /health is racing against. Registering on ApplicationStarted instead means this only begins
+// once Kestrel is already bound and listening, so that probe succeeds immediately regardless
+// of whether the database happens to be paused — see DatabaseMigrationRunner for the full story
+// (a real production outage) this replaced. Runs in every environment — this is exactly what
+// fixed that outage; it was never meant to be Development-only, and until now it silently
+// wasn't running at all whenever the app was correctly configured as Production.
+app.Lifetime.ApplicationStarted.Register(() =>
+    _ = DatabaseMigrationRunner.MigrateWithRetryAsync(app.Services, app.Lifetime.ApplicationStopping));
+
+app.UseCors(WebAppCorsPolicy);
+
 if (app.Environment.IsDevelopment())
 {
-    // Deliberately *not* awaited here, and not run via an IHostedService.StartAsync either — both
-    // of those are on the host's own startup path, which Azure's container-startup probe against
-    // /health is racing against. Registering on ApplicationStarted instead means this only begins
-    // once Kestrel is already bound and listening, so that probe succeeds immediately regardless
-    // of whether the database happens to be paused — see DatabaseMigrationRunner for the full story
-    // (a real production outage) this replaced.
-    app.Lifetime.ApplicationStarted.Register(() =>
-        _ = DatabaseMigrationRunner.MigrateWithRetryAsync(app.Services, app.Lifetime.ApplicationStopping));
-
     app.UseSwagger();
     app.UseSwaggerUI();
-    app.UseCors(WebAppCorsPolicy);
 }
 
 app.UseHttpsRedirection();
