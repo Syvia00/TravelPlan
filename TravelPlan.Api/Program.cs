@@ -4,6 +4,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
 using TravelPlan.Api.Auth;
@@ -195,6 +196,20 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options => options.SupportNonNullableReferenceTypes());
 builder.Services.AddHealthChecks();
 
+// Both Azure App Service and Azure Container Apps terminate TLS at their own edge and forward
+// plain HTTP to this container, adding X-Forwarded-For/-Proto/-Host headers to say so. Without
+// this, UseHttpsRedirection() below sees every request as HTTP and would redirect it to HTTPS
+// again, which the edge then forwards back as HTTP — an infinite redirect loop. KnownNetworks/
+// KnownProxies are cleared because the edge's IP isn't fixed on either platform (a PaaS/serverless
+// front end, not a single known reverse proxy box) — same pattern Microsoft's own docs recommend
+// for exactly this hosting shape.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
 
 // Deliberately *not* awaited here, and not run via an IHostedService.StartAsync either — both
@@ -207,6 +222,10 @@ var app = builder.Build();
 // wasn't running at all whenever the app was correctly configured as Production.
 app.Lifetime.ApplicationStarted.Register(() =>
     _ = DatabaseMigrationRunner.MigrateWithRetryAsync(app.Services, app.Lifetime.ApplicationStopping));
+
+// Must run before UseHttpsRedirection (and before anything else that reads Request.Scheme/Host/
+// RemoteIp) — see the ForwardedHeadersOptions registration above for why.
+app.UseForwardedHeaders();
 
 app.UseCors(WebAppCorsPolicy);
 

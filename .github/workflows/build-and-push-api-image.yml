@@ -1,0 +1,55 @@
+name: Build and push API image
+
+# Builds TravelPlan.Api into a container image and pushes it to GHCR. Explicit linux/amd64 (not
+# whatever the runner happens to be) because ubuntu-latest runners are already amd64, but pinning
+# it is what actually matters here: local Mac development is ARM, and Azure Container Apps
+# Consumption only runs amd64 — building on a Mac would silently produce the wrong architecture.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "TravelPlan.Api/**"
+      - "TravelPlan.Shared/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/build-and-push-api-image.yml"
+  workflow_dispatch: {}
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/travelplan-api
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # The GHCR package itself still defaults to private on first push regardless of the
+      # repository's own visibility — GITHUB_TOKEN can't change package visibility via the API,
+      # so that's a one-time manual step in the package's own settings page, not something this
+      # workflow can do.
