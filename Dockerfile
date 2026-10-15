@@ -7,17 +7,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY TravelPlan.Shared/TravelPlan.Shared.csproj TravelPlan.Shared/
-COPY TravelPlan.Api/TravelPlan.Api.csproj TravelPlan.Api/
-RUN dotnet restore TravelPlan.Api/TravelPlan.Api.csproj -r linux-x64
-
 COPY TravelPlan.Shared/ TravelPlan.Shared/
 COPY TravelPlan.Api/ TravelPlan.Api/
+
+# One combined restore+publish call — the exact invocation scripts/deploy-api.sh already uses
+# for the App Service zip deploy, kept identical rather than split into separate restore/publish
+# steps (which can resolve a subtly different restore graph for a non-self-contained, RID-specific
+# publish and fail on --no-restore) for the sake of Docker layer caching this project is too small
+# to need.
 RUN dotnet publish TravelPlan.Api/TravelPlan.Api.csproj \
     -c Release \
     -r linux-x64 \
     --self-contained false \
-    --no-restore \
     -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
