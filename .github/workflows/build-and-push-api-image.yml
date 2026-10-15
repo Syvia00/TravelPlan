@@ -15,9 +15,6 @@ on:
       - ".github/workflows/build-and-push-api-image.yml"
   workflow_dispatch: {}
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/travelplan-api
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -27,6 +24,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Docker image references must be all-lowercase; github.repository_owner (Syvia00) isn't.
+      - name: Compute lowercase image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/travelplan-api" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -46,8 +48,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
 
       # The GHCR package itself still defaults to private on first push regardless of the
       # repository's own visibility — GITHUB_TOKEN can't change package visibility via the API,
