@@ -8,6 +8,10 @@ else if (_coveringTrip is null)
 {
     <p class="empty-day">No trip covers this day yet.</p>
 }
+else if (_error is not null)
+{
+    <p class="load-error">Couldn't load this day: @_error <button type="button" class="btn ghost" @onclick="LoadItemsAsync">Retry</button></p>
+}
 else
 {
     <div class="day-timeline">
@@ -107,6 +111,7 @@ else
     public IReadOnlyList<TripDto> Trips { get; set; } = Array.Empty<TripDto>();
 
     private bool _loading = true;
+    private string? _error;
     private TripDto? _coveringTrip;
     private bool CanEdit => _coveringTrip is { } t && (t.IsOwner || t.Role == TripRole.Editor);
     private List<PlanItemDto> _backlog = new();
@@ -127,6 +132,9 @@ else
         _loading = false;
     }
 
+    // Same reasoning as Home.razor's ReloadTripsAsync: a cold Container App/database or a
+    // transient MSAL token refresh failure must show a retry, not crash the page. This also
+    // guards the reloads LoadItemsAsync does after create/update/delete/drag actions below.
     private async Task LoadItemsAsync()
     {
         if (_coveringTrip is null)
@@ -137,12 +145,20 @@ else
             return;
         }
 
-        var items = await PlanItemsApi.ListByTripAsync(_coveringTrip.Id);
-        _backlog = items.Where(i => i.Date is null).OrderBy(i => i.SortOrder).ToList();
+        try
+        {
+            var items = await PlanItemsApi.ListByTripAsync(_coveringTrip.Id);
+            _backlog = items.Where(i => i.Date is null).OrderBy(i => i.SortOrder).ToList();
 
-        var forDay = items.Where(i => i.Date == Date).ToList();
-        _scheduled = forDay.Where(i => i.Time is not null).OrderBy(i => i.Time).ToList();
-        _unscheduled = forDay.Where(i => i.Time is null).OrderBy(i => i.SortOrder).ToList();
+            var forDay = items.Where(i => i.Date == Date).ToList();
+            _scheduled = forDay.Where(i => i.Time is not null).OrderBy(i => i.Time).ToList();
+            _unscheduled = forDay.Where(i => i.Time is null).OrderBy(i => i.SortOrder).ToList();
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
+        }
     }
 
     private void OpenCreate(DateOnly? date, TimeOnly? time)

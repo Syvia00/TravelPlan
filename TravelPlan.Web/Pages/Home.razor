@@ -1,6 +1,10 @@
 @page "/"
 @inject TripsApiClient TripsApi
 
+@if (_error is not null)
+{
+    <p class="load-error">Couldn't load your trips: @_error <button type="button" class="btn ghost" @onclick="ReloadTripsAsync">Retry</button></p>
+}
 <div class="page warm @MobileVisibleClass("budget")">
     <LiveCountdown Trips="@_trips" TripsLoading="@_loading" />
     <BudgetPanel Trips="@_trips" TripsLoading="@_loading" OnTripSaved="ReloadTripsAsync" />
@@ -16,17 +20,28 @@
 @code {
     private List<TripDto> _trips = new();
     private bool _loading = true;
+    private string? _error;
     private string _mobileTab = "budget";
 
     protected override async Task OnInitializedAsync() => await ReloadTripsAsync();
 
+    // A slow or failing request here — most commonly a cold Container App/database taking 25s+ to
+    // respond, or a transient MSAL silent-token-refresh failure — must not crash the whole app.
+    // Catching broadly (not just ApiException) is deliberate: AccessTokenNotAvailableException,
+    // HttpRequestException and TaskCanceledException can all surface here and none of them are
+    // this component's concern beyond "tell the user and let them retry."
     private async Task ReloadTripsAsync()
     {
         _loading = true;
+        _error = null;
         StateHasChanged();
         try
         {
             _trips = await TripsApi.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
         }
         finally
         {

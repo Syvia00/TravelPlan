@@ -6,6 +6,11 @@
 {
     <p class="big-num">Loading…</p>
 }
+else if (_error is not null)
+{
+    <p class="big-num">Couldn't load budget</p>
+    <p class="load-error">@_error <button type="button" class="btn ghost" @onclick="LoadTotalsAsync">Retry</button></p>
+}
 else
 {
     <p class="big-num">@FormatMoney(_grandTotal, _currency) tracked</p>
@@ -48,6 +53,7 @@ else
     private AccommodationFormModal? _stayModal;
     private TravelLegFormModal? _transportModal;
     private bool _loadingTotals = true;
+    private string? _error;
     private List<CategoryTotal> _categoryTotals = new();
     private decimal _grandTotal;
     private string _currency = "USD";
@@ -60,29 +66,43 @@ else
         }
     }
 
+    // One failed trip in this loop (a cold Container App/database, a transient MSAL token
+    // refresh failure, anything) must not crash the whole Home page — catching broadly here is
+    // deliberate, same reasoning as Home.razor's ReloadTripsAsync.
     private async Task LoadTotalsAsync()
     {
         _loadingTotals = true;
+        _error = null;
         var totals = new Dictionary<BudgetCategory, decimal>();
         string? currency = null;
 
-        foreach (var trip in Trips)
+        try
         {
-            var items = await BudgetApi.ListByTripAsync(trip.Id);
-            foreach (var item in items)
+            foreach (var trip in Trips)
             {
-                totals[item.Category] = totals.GetValueOrDefault(item.Category) + item.Amount;
-                currency ??= item.Currency;
+                var items = await BudgetApi.ListByTripAsync(trip.Id);
+                foreach (var item in items)
+                {
+                    totals[item.Category] = totals.GetValueOrDefault(item.Category) + item.Amount;
+                    currency ??= item.Currency;
+                }
             }
-        }
 
-        _categoryTotals = totals
-            .OrderByDescending(kv => kv.Value)
-            .Select(kv => new CategoryTotal(kv.Key.ToString(), kv.Value))
-            .ToList();
-        _grandTotal = totals.Values.Sum();
-        _currency = currency ?? "USD";
-        _loadingTotals = false;
+            _categoryTotals = totals
+                .OrderByDescending(kv => kv.Value)
+                .Select(kv => new CategoryTotal(kv.Key.ToString(), kv.Value))
+                .ToList();
+            _grandTotal = totals.Values.Sum();
+            _currency = currency ?? "USD";
+        }
+        catch (Exception ex)
+        {
+            _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _loadingTotals = false;
+        }
     }
 
     private void OpenNewTripModal() => _tripModal?.Open();

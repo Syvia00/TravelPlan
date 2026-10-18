@@ -260,6 +260,7 @@ a { color: inherit; }
 }
 .photo-add input[type="file"] { display: none; }
 .photo-error { color: #b3261e; font-size: 11px; margin: 0 0 0 4px; }
+.load-error { color: #b3261e; font-size: 13px; margin: 8px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .drag-zone {
   display: flex; flex-direction: column; gap: 6px;
