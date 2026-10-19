@@ -18,10 +18,10 @@ namespace TravelPlan.Api.Services;
 /// MapsService's pattern of not failing startup over a Phase 2+ feature's config being unset.
 /// Lazy&lt;T&gt;'s default mode caches a thrown exception and rethrows it on every subsequent
 /// access, so once this has failed once it keeps failing for the rest of the process's life, not
-/// just until the setting is fixed. That's fine here: fixing AzureStorage:ConnectionString is an
-/// App Service setting change, and those always restart the app, which rebuilds this singleton
-/// (and its Lazy&lt;T&gt;) from scratch — there's no live-fix-without-restart path this would need
-/// to support.
+/// just until the setting is fixed. That's fine here: fixing AzureStorage:ConnectionString is a
+/// Container App env var change, and those always roll out as a new revision, which rebuilds this
+/// singleton (and its Lazy&lt;T&gt;) from scratch — there's no live-fix-without-restart path this
+/// would need to support.
 /// </summary>
 public class PhotoStorageService : IPhotoStorageService
 {

@@ -17,7 +17,7 @@ public interface ITripRepository : IRepository<Trip>
     /// still not Completed/Cancelled at the moment the database applies it. Returns true only
     /// for the caller that actually won the transition; false if the trip was already
     /// Completed/Cancelled (by this call or a concurrent one). Safe under concurrent callers —
-    /// e.g. multiple App Service instances running the same background sweep — since the
+    /// e.g. multiple Container Apps replicas running the same background sweep — since the
     /// database, not an in-memory read, is the source of truth for the WHERE check.
     /// </summary>
     Task<bool> TryMarkCompletedAsync(int tripId, DateTime updatedAtUtc, CancellationToken cancellationToken = default);

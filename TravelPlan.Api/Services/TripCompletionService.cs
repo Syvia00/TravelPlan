@@ -73,7 +73,7 @@ public class TripCompletionService : ITripCompletionService
     /// Wins or loses the completion race atomically via TryMarkCompletedAsync (a conditional
     /// UPDATE the database evaluates at execution time, not against this possibly-stale
     /// in-memory `trip`). Only the winner generates the MemorySummary report — with multiple
-    /// App Service instances running this same sweep concurrently, exactly one of them will see
+    /// Container Apps replicas running this same sweep concurrently, exactly one of them will see
     /// its UPDATE affect a row; the rest see 0 rows affected and back off without generating a
     /// duplicate report. Returns whether this call won.
     /// </summary>

@@ -8,7 +8,7 @@ of it when it ends.
 Built with .NET 10 (ASP.NET Core and Blazor WebAssembly) and deployed on
 Azure.
 
-Live demo: (add link)
+Live demo: https://jolly-sand-066886f10.5.azurestaticapps.net
 
 ---
 
@@ -38,7 +38,7 @@ plan item from a pasted link.
 
 ```mermaid
 flowchart LR
-    Browser["Blazor WebAssembly<br/>Azure Static Web Apps"] -->|"API calls with JWT"| Api["ASP.NET Core API<br/>Azure App Service"]
+    Browser["Blazor WebAssembly<br/>Azure Static Web Apps"] -->|"API calls with JWT"| Api["ASP.NET Core API<br/>Azure Container Apps"]
     Browser -->|"sign in"| Entra["Microsoft Entra External ID"]
     Api --> Sql[("Azure SQL Database")]
     Api --> Blob[("Azure Blob Storage")]
@@ -63,7 +63,7 @@ flowchart LR
 - Blazor WebAssembly
 - SQLite for local development, Azure SQL Database in production
 - Microsoft Entra External ID (email and Google sign-in), JWT bearer auth
-- Azure App Service, Azure Static Web Apps, Azure Blob Storage, Azure Maps
+- Azure Container Apps, Azure Static Web Apps, Azure Blob Storage, Azure Maps
 - SkiaSharp for images, PDFs and thumbnails
 - xUnit, GitHub Actions
 
@@ -84,8 +84,14 @@ flowchart LR
   a separate migration history for each, because each provider needs its own
   column types. CI applies both, including against a real SQL Server.
 - **Cost-aware hosting.** The database runs on Azure's free serverless offer
-  and pauses when idle. Background jobs run daily and the UI does not poll,
-  so the database can actually stay paused.
+  and pauses when idle, and the API runs on Azure Container Apps Consumption,
+  which scales to zero when idle. Background jobs run daily and the UI does
+  not poll, so both can actually stay paused.
+- **Cold-start aware client.** A woken container plus a resuming database can
+  take over a minute to answer the first request. The web app retries a GET
+  once after a transport failure, timeout, or 502/503/504, uses a 3-minute
+  HTTP timeout, and shows a short "waking up" note once a load has been
+  pending for a few seconds.
 
 ---
 
@@ -148,7 +154,8 @@ CI also applies the migrations for both SQLite and SQL Server.
 
 ## Configuration
 
-API settings (user-secrets locally, App Service settings in production):
+API settings (user-secrets locally, Container App environment variables and
+secrets in production):
 
 - `DatabaseProvider` and `ConnectionStrings:DefaultConnection` — production
   only; left unset locally, where SQLite is used automatically
@@ -173,8 +180,15 @@ Web settings (`TravelPlan.Web/wwwroot/appsettings.json`):
 
 - The web app deploys automatically from GitHub through the Azure Static Web
   Apps workflow.
-- The API deploys with `scripts/deploy-api.sh`, which publishes for Linux and
-  starts the App Service if it is stopped.
+- The API ships as a container image, built and pushed to GHCR by
+  `.github/workflows/build-and-push-api-image.yml` on every push that touches
+  `TravelPlan.Api`, `TravelPlan.Shared`, or the Dockerfile.
+  `scripts/deploy-api.sh <tag>` then points the running Azure Container App
+  at that image tag (`scripts/deploy-api.sh latest` or
+  `scripts/deploy-api.sh $(git rev-parse HEAD)`) — it doesn't build or
+  publish anything itself.
+- The Container App scales to zero when idle (Consumption plan, min replicas
+  0), so the first request after a quiet period triggers a cold start.
 - Database migrations are applied by the API after startup, with retry while
   a paused database resumes.
 
