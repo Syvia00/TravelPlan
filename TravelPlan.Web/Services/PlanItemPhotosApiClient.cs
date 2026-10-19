@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Net.Http.Headers;
 using TravelPlan.Shared.DTOs.PlanItems;
 
@@ -5,7 +6,7 @@ namespace TravelPlan.Web.Services;
 
 public class PlanItemPhotosApiClient : ApiClientBase
 {
-    public PlanItemPhotosApiClient(HttpClient http) : base(http)
+    public PlanItemPhotosApiClient(HttpClient http, ILogger<ApiClientBase> logger) : base(http, logger)
     {
     }
 

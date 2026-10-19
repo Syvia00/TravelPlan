@@ -1,10 +1,11 @@
+using Microsoft.Extensions.Logging;
 using TravelPlan.Shared.DTOs.TripMemories;
 
 namespace TravelPlan.Web.Services;
 
 public class TripMemoriesApiClient : ApiClientBase
 {
-    public TripMemoriesApiClient(HttpClient http) : base(http)
+    public TripMemoriesApiClient(HttpClient http, ILogger<ApiClientBase> logger) : base(http, logger)
     {
     }
 

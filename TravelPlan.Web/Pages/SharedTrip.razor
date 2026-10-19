@@ -15,6 +15,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject TripShareLinksApiClient ShareLinksApi
 @inject NavigationManager Navigation
+@inject ILogger<ApiClientBase> Logger
 
 <div class="page cool" style="flex:1 1 100%;">
     <a class="settings-icon" href="/" title="Back to your book">←</a>
@@ -237,10 +238,10 @@
         _sharedHttp = HttpClientFactory.CreateClient("TravelPlan.Api.Shared");
         _sharedHttp.DefaultRequestHeaders.Remove("X-Share-Token");
         _sharedHttp.DefaultRequestHeaders.Add("X-Share-Token", Token);
-        _tripsApi = new TripsApiClient(_sharedHttp);
-        _accommodationsApi = new AccommodationsApiClient(_sharedHttp);
-        _travelLegsApi = new TravelLegsApiClient(_sharedHttp);
-        _budgetApi = new BudgetItemsApiClient(_sharedHttp);
+        _tripsApi = new TripsApiClient(_sharedHttp, Logger);
+        _accommodationsApi = new AccommodationsApiClient(_sharedHttp, Logger);
+        _travelLegsApi = new TravelLegsApiClient(_sharedHttp, Logger);
+        _budgetApi = new BudgetItemsApiClient(_sharedHttp, Logger);
 
         try
         {

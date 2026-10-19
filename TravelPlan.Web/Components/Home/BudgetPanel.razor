@@ -5,7 +5,7 @@
 
 @if (TripsLoading || _loadingTotals)
 {
-    <p class="big-num">Loading…</p>
+    <p class="big-num">@(_showSlowLoadHint ? SlowLoadHint : "Loading…")</p>
 }
 else if (_error is not null)
 {
@@ -59,11 +59,44 @@ else
     private decimal _grandTotal;
     private string _currency = "USD";
 
+    private const string SlowLoadHint = "Waking up the server — the first load can take up to a minute.";
+    private bool _showSlowLoadHint;
+    private bool _slowLoadHintArmed;
+
     protected override async Task OnParametersSetAsync()
     {
-        if (!TripsLoading)
+        if (TripsLoading)
+        {
+            ArmSlowLoadHint();
+        }
+        else
         {
             await LoadTotalsAsync();
+        }
+    }
+
+    /// <summary>After ~5s of continuous loading (either waiting on Trips from the parent, or on
+    /// this panel's own fetch below), swap the plain "Loading…" text for a note that the server
+    /// may be waking from a cold start. Re-checks the loading condition after the delay since the
+    /// load may already be done by then.</summary>
+    private void ArmSlowLoadHint()
+    {
+        if (_slowLoadHintArmed)
+        {
+            return;
+        }
+
+        _slowLoadHintArmed = true;
+        _ = ShowSlowLoadHintAfterDelayAsync();
+    }
+
+    private async Task ShowSlowLoadHintAfterDelayAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (TripsLoading || _loadingTotals)
+        {
+            _showSlowLoadHint = true;
+            StateHasChanged();
         }
     }
 
@@ -75,6 +108,7 @@ else
     {
         _loadingTotals = true;
         _error = null;
+        ArmSlowLoadHint();
         var totals = new Dictionary<BudgetCategory, decimal>();
         string? currency = null;
 
@@ -109,6 +143,8 @@ else
         finally
         {
             _loadingTotals = false;
+            _showSlowLoadHint = false;
+            _slowLoadHintArmed = false;
         }
     }
 

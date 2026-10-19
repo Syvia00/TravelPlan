@@ -18,7 +18,7 @@
 
 @if (TripsLoading)
 {
-    <p>Loading…</p>
+    <p>@(_showSlowLoadHint ? SlowLoadHint : "Loading…")</p>
 }
 else
 {
@@ -63,8 +63,42 @@ else
     [Parameter]
     public bool TripsLoading { get; set; }
 
+    private const string SlowLoadHint = "Waking up the server — the first load can take up to a minute.";
+    private bool _showSlowLoadHint;
+    private bool _slowLoadHintArmed;
+
     private CalendarZoom _zoom = CalendarZoom.Month;
     private DateOnly _focusDate = DateOnly.FromDateTime(DateTime.Today);
+
+    protected override void OnParametersSet()
+    {
+        if (!TripsLoading)
+        {
+            _showSlowLoadHint = false;
+            _slowLoadHintArmed = false;
+            return;
+        }
+
+        if (!_slowLoadHintArmed)
+        {
+            _slowLoadHintArmed = true;
+            _ = ShowSlowLoadHintAfterDelayAsync();
+        }
+    }
+
+    /// <summary>After ~5s of continuous loading, swap the plain "Loading…" text for a note that
+    /// the server may be waking from a cold start — a cold Container App/database can take up to
+    /// a minute to answer the very first request. Re-checks TripsLoading after the delay since
+    /// the load may already be done by then.</summary>
+    private async Task ShowSlowLoadHintAfterDelayAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (TripsLoading)
+        {
+            _showSlowLoadHint = true;
+            StateHasChanged();
+        }
+    }
 
     private string Title => _zoom switch
     {

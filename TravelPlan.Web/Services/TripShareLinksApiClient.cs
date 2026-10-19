@@ -1,10 +1,11 @@
+using Microsoft.Extensions.Logging;
 using TravelPlan.Shared.DTOs.TripShareLinks;
 
 namespace TravelPlan.Web.Services;
 
 public class TripShareLinksApiClient : ApiClientBase
 {
-    public TripShareLinksApiClient(HttpClient http) : base(http)
+    public TripShareLinksApiClient(HttpClient http, ILogger<ApiClientBase> logger) : base(http, logger)
     {
     }
 

@@ -1,10 +1,11 @@
+using Microsoft.Extensions.Logging;
 using TravelPlan.Shared.DTOs.PlanItems;
 
 namespace TravelPlan.Web.Services;
 
 public class PlanItemsApiClient : ApiClientBase
 {
-    public PlanItemsApiClient(HttpClient http) : base(http)
+    public PlanItemsApiClient(HttpClient http, ILogger<ApiClientBase> logger) : base(http, logger)
     {
     }
 

@@ -3,7 +3,7 @@
 
 @if (_loading)
 {
-    <p class="empty-day">Loading…</p>
+    <p class="empty-day">@(_showSlowLoadHint ? SlowLoadHint : "Loading…")</p>
 }
 else if (_coveringTrip is null)
 {
@@ -113,6 +113,8 @@ else
 
     private bool _loading = true;
     private string? _error;
+    private const string SlowLoadHint = "Waking up the server — the first load can take up to a minute.";
+    private bool _showSlowLoadHint;
     private TripDto? _coveringTrip;
     private bool CanEdit => _coveringTrip is { } t && (t.IsOwner || t.Role == TripRole.Editor);
     private List<PlanItemDto> _backlog = new();
@@ -128,9 +130,24 @@ else
     protected override async Task OnParametersSetAsync()
     {
         _loading = true;
+        _showSlowLoadHint = false;
+        _ = ShowSlowLoadHintAfterDelayAsync();
         _coveringTrip = Trips.FirstOrDefault(t => t.StartDate <= Date && Date <= t.EndDate);
         await LoadItemsAsync();
         _loading = false;
+    }
+
+    /// <summary>After ~5s of continuous loading, swap the plain "Loading…" text for a note that
+    /// the server may be waking from a cold start. Re-checks _loading after the delay since the
+    /// load may already be done by then.</summary>
+    private async Task ShowSlowLoadHintAfterDelayAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (_loading)
+        {
+            _showSlowLoadHint = true;
+            StateHasChanged();
+        }
     }
 
     // Same reasoning as Home.razor's ReloadTripsAsync: a cold Container App/database must show a
