@@ -1,4 +1,5 @@
 @inject PlanItemsApiClient PlanItemsApi
+@inject ILogger<DayView> Logger
 
 @if (_loading)
 {
@@ -132,9 +133,10 @@ else
         _loading = false;
     }
 
-    // Same reasoning as Home.razor's ReloadTripsAsync: a cold Container App/database or a
-    // transient MSAL token refresh failure must show a retry, not crash the page. This also
-    // guards the reloads LoadItemsAsync does after create/update/delete/drag actions below.
+    // Same reasoning as Home.razor's ReloadTripsAsync: a cold Container App/database must show a
+    // retry, not crash the page, and a missing/expired token needs a sign-in redirect, not a
+    // Retry button that can't fix it. This also guards the reloads LoadItemsAsync does after
+    // create/update/delete/drag actions below.
     private async Task LoadItemsAsync()
     {
         if (_coveringTrip is null)
@@ -155,8 +157,13 @@ else
             _unscheduled = forDay.Where(i => i.Time is null).OrderBy(i => i.SortOrder).ToList();
             _error = null;
         }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
+        }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Failed to load plan items for {Date}", Date);
             _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
         }
     }

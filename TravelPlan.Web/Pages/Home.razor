@@ -1,5 +1,6 @@
 @page "/"
 @inject TripsApiClient TripsApi
+@inject ILogger<Home> Logger
 
 @if (_error is not null)
 {
@@ -26,10 +27,11 @@
     protected override async Task OnInitializedAsync() => await ReloadTripsAsync();
 
     // A slow or failing request here — most commonly a cold Container App/database taking 25s+ to
-    // respond, or a transient MSAL silent-token-refresh failure — must not crash the whole app.
-    // Catching broadly (not just ApiException) is deliberate: AccessTokenNotAvailableException,
-    // HttpRequestException and TaskCanceledException can all surface here and none of them are
-    // this component's concern beyond "tell the user and let them retry."
+    // respond — must not crash the whole app. AccessTokenNotAvailableException gets its own catch:
+    // retrying can't fix a missing/expired token, only signing in again can, so that one redirects
+    // instead of showing a Retry button that would just fail the same way. Everything else
+    // (ApiException, HttpRequestException, TaskCanceledException) is this component's concern only
+    // as far as "tell the user and let them retry."
     private async Task ReloadTripsAsync()
     {
         _loading = true;
@@ -39,8 +41,13 @@
         {
             _trips = await TripsApi.ListAsync();
         }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
+        }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Failed to load trips");
             _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
         }
         finally

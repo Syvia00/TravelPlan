@@ -1,4 +1,5 @@
 @inject BudgetItemsApiClient BudgetApi
+@inject ILogger<BudgetPanel> Logger
 
 <p class="eyebrow">BUDGET</p>
 
@@ -66,9 +67,10 @@ else
         }
     }
 
-    // One failed trip in this loop (a cold Container App/database, a transient MSAL token
-    // refresh failure, anything) must not crash the whole Home page — catching broadly here is
-    // deliberate, same reasoning as Home.razor's ReloadTripsAsync.
+    // One failed trip in this loop (a cold Container App/database, anything) must not crash the
+    // whole Home page. AccessTokenNotAvailableException gets its own catch and redirects to
+    // sign-in instead of showing a Retry that can't fix a missing token — same reasoning as
+    // Home.razor's ReloadTripsAsync.
     private async Task LoadTotalsAsync()
     {
         _loadingTotals = true;
@@ -95,8 +97,13 @@ else
             _grandTotal = totals.Values.Sum();
             _currency = currency ?? "USD";
         }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
+        }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Failed to load budget totals");
             _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
         }
         finally
