@@ -22,7 +22,7 @@
 
     @if (_state == LoadState.Loading)
     {
-        <p class="empty-day">Loading…</p>
+        <p class="empty-day">@(_showSlowLoadHint ? SlowLoadHint : "Loading…")</p>
     }
     else if (_state == LoadState.NotFound)
     {
@@ -32,6 +32,11 @@
             This share link is invalid, revoked, or has expired. Ask whoever sent it for a new one.
         </p>
         <a class="btn ghost" style="width:auto;display:inline-flex;padding:10px 20px;" href="/">← Back to TravelPlan</a>
+    }
+    else if (_state == LoadState.Error)
+    {
+        <p class="eyebrow">SHARED TRIP</p>
+        <p class="load-error">Couldn't load this trip: @_error <button type="button" class="btn ghost" @onclick="LoadTripAsync">Retry</button></p>
     }
     else if (_trip is not null)
     {
@@ -80,11 +85,15 @@
                     <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _stayModal?.Open()">+ Add stay</button>
                 }
             </div>
-            @if (_accommodations is null)
+            @if (_accommodationsState.Error is not null)
             {
-                <p class="empty-day">Loading…</p>
+                <p class="load-error">Couldn't load stays: @_accommodationsState.Error <button type="button" class="btn ghost" @onclick="ReloadAccommodationsAsync">Retry</button></p>
             }
-            else if (_accommodations.Count == 0)
+            else if (_accommodationsState.Loading)
+            {
+                <p class="empty-day">@(_accommodationsState.ShowSlowHint ? SlowLoadHint : "Loading…")</p>
+            }
+            else if (_accommodations is null || _accommodations.Count == 0)
             {
                 <p class="empty-day">No stays added yet.</p>
             }
@@ -120,11 +129,15 @@
                     <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _transportModal?.Open()">+ Add transport</button>
                 }
             </div>
-            @if (_travelLegs is null)
+            @if (_travelLegsState.Error is not null)
             {
-                <p class="empty-day">Loading…</p>
+                <p class="load-error">Couldn't load transport: @_travelLegsState.Error <button type="button" class="btn ghost" @onclick="ReloadLegsAsync">Retry</button></p>
             }
-            else if (_travelLegs.Count == 0)
+            else if (_travelLegsState.Loading)
+            {
+                <p class="empty-day">@(_travelLegsState.ShowSlowHint ? SlowLoadHint : "Loading…")</p>
+            }
+            else if (_travelLegs is null || _travelLegs.Count == 0)
             {
                 <p class="empty-day">No transport added yet.</p>
             }
@@ -160,11 +173,15 @@
                     <button type="button" class="btn ghost" style="width:auto;padding:6px 12px;margin:0;" @onclick="() => _budgetModal?.Open()">+ Add expense</button>
                 }
             </div>
-            @if (_budgetItems is null)
+            @if (_budgetState.Error is not null)
             {
-                <p class="empty-day">Loading…</p>
+                <p class="load-error">Couldn't load expenses: @_budgetState.Error <button type="button" class="btn ghost" @onclick="ReloadBudgetAsync">Retry</button></p>
             }
-            else if (_budgetItems.Count == 0)
+            else if (_budgetState.Loading)
+            {
+                <p class="empty-day">@(_budgetState.ShowSlowHint ? SlowLoadHint : "Loading…")</p>
+            }
+            else if (_budgetItems is null || _budgetItems.Count == 0)
             {
                 <p class="empty-day">No expenses added yet.</p>
             }
@@ -199,7 +216,20 @@
 </div>
 
 @code {
-    private enum LoadState { Loading, NotFound, Loaded }
+    private enum LoadState { Loading, NotFound, Error, Loaded }
+
+    /// <summary>Per-section loading/error/slow-hint state for the three sections (Stays,
+    /// Transport, Expenses) that load independently of each other and of the trip itself —
+    /// mirrors the pattern CalendarWidget/BudgetPanel/DayView each duplicate per component, just
+    /// factored into one small type since all three live in this one file.</summary>
+    private sealed class SectionLoadState
+    {
+        public bool Loading = true;
+        public string? Error;
+        public bool ShowSlowHint;
+    }
+
+    private const string SlowLoadHint = "Waking up the server — the first load can take up to a minute.";
 
     [Parameter]
     public string Token { get; set; } = string.Empty;
@@ -211,10 +241,16 @@
     private BudgetItemsApiClient _budgetApi = default!;
 
     private LoadState _state = LoadState.Loading;
+    private string? _error;
+    private bool _showSlowLoadHint;
     private TripDto? _trip;
+
     private List<AccommodationDto>? _accommodations;
+    private readonly SectionLoadState _accommodationsState = new();
     private List<TravelLegDto>? _travelLegs;
+    private readonly SectionLoadState _travelLegsState = new();
     private List<BudgetItemDto>? _budgetItems;
+    private readonly SectionLoadState _budgetState = new();
 
     private TripFormModal? _tripModal;
     private AccommodationFormModal? _stayModal;
@@ -229,12 +265,6 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _state = LoadState.Loading;
-        _trip = null;
-        _accommodations = null;
-        _travelLegs = null;
-        _budgetItems = null;
-
         _sharedHttp = HttpClientFactory.CreateClient("TravelPlan.Api.Shared");
         _sharedHttp.DefaultRequestHeaders.Remove("X-Share-Token");
         _sharedHttp.DefaultRequestHeaders.Add("X-Share-Token", Token);
@@ -243,23 +273,55 @@
         _travelLegsApi = new TravelLegsApiClient(_sharedHttp, Logger);
         _budgetApi = new BudgetItemsApiClient(_sharedHttp, Logger);
 
+        await LoadTripAsync();
+    }
+
+    // No AccessTokenNotAvailableException handling here: every call in this method goes through
+    // _sharedHttp (the unauthenticated "TravelPlan.Api.Shared" client, carrying only the share
+    // token), never through AuthorizationMessageHandler, so that exception can't occur on this
+    // path — see ClaimAsync below for the one call in this file that does need it.
+    private async Task LoadTripAsync()
+    {
+        _state = LoadState.Loading;
+        _error = null;
+        _showSlowLoadHint = false;
+        _trip = null;
+        // Reset in case this is a navigation from one share link straight to another (same
+        // component instance, OnParametersSetAsync re-firing) — without this, stale data or a
+        // stale error from the previous trip could flash before the new sections load.
+        _accommodations = null;
+        _accommodationsState.Loading = true;
+        _accommodationsState.Error = null;
+        _travelLegs = null;
+        _travelLegsState.Loading = true;
+        _travelLegsState.Error = null;
+        _budgetItems = null;
+        _budgetState.Loading = true;
+        _budgetState.Error = null;
+        _ = ShowSlowLoadHintAfterDelayAsync();
+
         try
         {
             // An unknown or expired token fails authentication in ShareLinkAuthHandler itself, so
             // [Authorize] rejects the request with 401 before GetShared's own "no ShareLinkTripId"
             // NotFound branch is ever reached — that branch only fires for the (unreachable from
             // here) case of no token at all. Both outcomes read the same to this anonymous
-            // visitor: the link doesn't work, so both map to the same friendly NotFound state.
+            // visitor: the link doesn't work, so both map to the same friendly NotFound state,
+            // which isn't retryable. Anything else (a transport failure, a timeout, or a gateway
+            // error that survived the one automatic retry in ApiClientBase) is a transient
+            // problem, not an invalid link, so it gets the normal friendly-error-with-Retry state.
             _trip = await _tripsApi.GetSharedAsync();
         }
-        catch (ApiException)
-        {
-            _trip = null;
-        }
-
-        if (_trip is null)
+        catch (ApiException ex) when (ex.StatusCode == 401)
         {
             _state = LoadState.NotFound;
+            return;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load shared trip");
+            _error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
+            _state = LoadState.Error;
             return;
         }
 
@@ -267,13 +329,62 @@
         await Task.WhenAll(ReloadAccommodationsAsync(), ReloadLegsAsync(), ReloadBudgetAsync());
     }
 
+    private async Task ShowSlowLoadHintAfterDelayAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (_state == LoadState.Loading)
+        {
+            _showSlowLoadHint = true;
+            StateHasChanged();
+        }
+    }
+
     private async Task ReloadTripAsync() => _trip = await _tripsApi.GetSharedAsync();
 
-    private async Task ReloadAccommodationsAsync() => _accommodations = await _accommodationsApi.ListByTripAsync(_trip!.Id);
+    private Task ReloadAccommodationsAsync() => LoadSectionAsync(
+        _accommodationsState, () => _accommodationsApi.ListByTripAsync(_trip!.Id), v => _accommodations = v, "stays");
 
-    private async Task ReloadLegsAsync() => _travelLegs = await _travelLegsApi.ListByTripAsync(_trip!.Id);
+    private Task ReloadLegsAsync() => LoadSectionAsync(
+        _travelLegsState, () => _travelLegsApi.ListByTripAsync(_trip!.Id), v => _travelLegs = v, "transport");
 
-    private async Task ReloadBudgetAsync() => _budgetItems = await _budgetApi.ListByTripAsync(_trip!.Id);
+    private Task ReloadBudgetAsync() => LoadSectionAsync(
+        _budgetState, () => _budgetApi.ListByTripAsync(_trip!.Id), v => _budgetItems = v, "expenses");
+
+    /// <summary>Shared by the three independent sections above. No AccessTokenNotAvailableException
+    /// handling needed here either — same reasoning as LoadTripAsync, these all go through
+    /// _sharedHttp.</summary>
+    private async Task LoadSectionAsync<T>(SectionLoadState state, Func<Task<T>> fetch, Action<T> assign, string what)
+    {
+        state.Loading = true;
+        state.Error = null;
+        state.ShowSlowHint = false;
+        _ = ShowSlowHintAfterDelayAsync(state);
+        StateHasChanged();
+
+        try
+        {
+            assign(await fetch());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load {What} for shared trip {TripId}", what, _trip!.Id);
+            state.Error = ex is ApiException apiEx ? apiEx.Message : "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            state.Loading = false;
+        }
+    }
+
+    private async Task ShowSlowHintAfterDelayAsync(SectionLoadState state)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (state.Loading)
+        {
+            state.ShowSlowHint = true;
+            StateHasChanged();
+        }
+    }
 
     private async Task DeleteStayAsync(int id)
     {
@@ -296,7 +407,9 @@
     /// <summary>
     /// Uses ShareLinksApi — the normal DI-injected, MSAL-authenticated client, not _tripsApi —
     /// specifically so the request carries the visitor's own JWT instead of the share token; the
-    /// API keys the claim off the caller's real UserId (see TripShareLinksController.Claim).
+    /// API keys the claim off the caller's real UserId (see TripShareLinksController.Claim). This
+    /// is the one call in this file that can throw AccessTokenNotAvailableException — everywhere
+    /// else uses the unauthenticated _sharedHttp client, which never does.
     /// </summary>
     private async Task ClaimAsync()
     {
@@ -306,6 +419,10 @@
         {
             var result = await ShareLinksApi.ClaimAsync(Token);
             Navigation.NavigateTo($"/trips/{result.TripId}");
+        }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
         }
         catch (ApiException ex)
         {
